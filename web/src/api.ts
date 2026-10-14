@@ -68,6 +68,8 @@ export interface Entry {
   skipped: boolean;
   reason: string;
   group_id: string | null;
+  /** Recorded, but no longer on the schedule (its rule changed or now begins later). */
+  unscheduled?: boolean;
   outcome: Outcome | null;
 }
 

@@ -331,3 +331,29 @@ def test_new_rules_do_not_fill_in_the_past(h):
     assert len(mine(past, today - dt.timedelta(days=1))) == 14, "an explicit earlier start reaches back"
     # Editing keeps the original creation day; it isn't reset to the edit.
     assert h.svc.rule(rule.id).created == today
+
+
+def test_recorded_outcomes_stay_visible_when_the_schedule_moves_on(h):
+    """Outcomes on days the rules no longer produce -- the rule now begins
+    later, was edited, or deleted -- still show, flagged unscheduled."""
+    k = key_on(h, MON)
+    h.svc.record(h.tucker, k, "done")
+    rule = h.svc.rule(k[3])
+    # The rule now begins after Monday...
+    h.svc.update_rule(h.eric, rule.id, rule.chore_id, rule.person_id, rule.pattern, due=rule.due,
+                      start=MON + dt.timedelta(days=1))
+    day = h.svc.calendar(MON, MON)
+    assert len(day) == 1 and day[0].occurrence.unscheduled and day[0].outcome["status"] == "done"
+    assert day[0].occurrence.person_id == h.tucker["id"]
+    assert list(entries_json(day))[0]["unscheduled"] is True
+    # ...shown in Tucker's own view too, not in someone else's...
+    assert h.svc.calendar(MON, MON, person_id=h.tucker["id"])
+    assert h.svc.calendar(MON, MON, person_id=h.cass["id"]) == []
+    # ...and still undoable, after which the day is empty.
+    h.svc.undo(h.eric, day[0].outcome["id"], "cleanup")
+    assert h.svc.calendar(MON, MON) == []
+    # Deleting a rule leaves its recorded days visible the same way.
+    k2 = key_on(h, WED)
+    h.svc.record(h.tucker, k2, "done")
+    h.svc.delete_rule(h.eric, k2[3])
+    assert h.svc.calendar(WED, WED)[0].occurrence.unscheduled

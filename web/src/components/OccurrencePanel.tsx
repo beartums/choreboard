@@ -48,6 +48,8 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
           {entry.scheduled_person_id != null && ` (instead of ${name(entry.scheduled_person_id)})`}
           {chore && ` · ${chore.points} pt${chore.points === 1 ? "" : "s"}`}
         </p>
+        {entry.unscheduled && <p className="note">This day is no longer on the schedule (its rotation changed or now
+          starts later), but what was recorded is kept.</p>}
         {entry.reason && <p className="note">{entry.group_id ? "Swap" : "Change"}: {entry.reason}</p>}
 
         {entry.outcome ? (

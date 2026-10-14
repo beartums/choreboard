@@ -149,3 +149,7 @@ Out of the first version: rewards, streaks, photos, notifications.
   fixtures so the fixed dates they use stay covered whatever day they run.
 - **Sign-in tolerates 60 s of clock skew** (v0.4.1) between Pomerium's node and
   this pod's, and logs every rejected assertion with its reason.
+- **What was recorded is always on the calendar** (v0.4.3). A live outcome
+  whose day the rules no longer produce -- the rule was edited, deleted, or
+  now begins later -- is still returned, flagged `unscheduled`, with its
+  assignee, and can be undone. Otherwise points would appear from nowhere.

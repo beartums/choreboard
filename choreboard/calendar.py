@@ -132,6 +132,9 @@ class Occurrence:
     reason: str = ""
     group_id: str | None = None
     available: dt.time | None = None
+    # Not on today's schedule, but something was recorded against it: the
+    # rule changed, was deleted, or now begins later (see service.calendar).
+    unscheduled: bool = False
 
     @property
     def source(self) -> str:

@@ -165,3 +165,18 @@ describe("calendar views", () => {
     expect(await screen.findByRole("heading", { name: new RegExp(label) })).toBeInTheDocument();
   });
 });
+
+
+describe("recorded but unscheduled", () => {
+  it("still shows, flagged, and can be undone", async () => {
+    s.entries.push({ ...entry(0, 3), id: "7:" + addDays(MON, 0) + ":rule:99", unscheduled: true,
+      outcome: { id: 77, status: "done", assignee_id: 3, done_by_id: 3, note: "", recorded_by: 3, recorded_at: "" } });
+    show();
+    expect(await screen.findByText(/no longer scheduled/)).toBeInTheDocument();
+    const btn = screen.getByText(/no longer scheduled/).closest("button")!;
+    await userEvent.click(btn);
+    const panel = await screen.findByRole("dialog");
+    expect(within(panel).getByText(/no longer on the schedule/)).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Undo this" })).toBeInTheDocument();
+  });
+});

@@ -165,6 +165,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
           {timeWindow(e.available, e.due) && ` · ${timeWindow(e.available, e.due)}`}
           {moved && ` · instead of ${ctx.person(e.scheduled_person_id)?.name}`}
           {e.source === "override" && !moved && !e.skipped && e.rule_id == null && " · extra"}
+          {e.unscheduled && " · no longer scheduled"}
         </span>
       </span>
       {state && <span className={`badge${e.group_id && !e.outcome && !e.skipped ? " swap" : ""}`}>{state}</span>}

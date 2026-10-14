@@ -310,7 +310,20 @@ class Service:
             (r["chore_id"], dt.date.fromisoformat(r["date"]), r["source"], r["source_id"]): dict(r)
             for r in self._all("SELECT * FROM outcomes WHERE undone_at IS NULL AND date BETWEEN ? AND ?",
                                start.isoformat(), end.isoformat())}
-        return [Entry(o, outcomes.get(o.key)) for o in occs]
+        entries = [Entry(o, outcomes.get(o.key)) for o in occs]
+        # What was recorded is always shown, even when the schedule no longer
+        # produces that day -- its rule was edited or deleted, or now begins
+        # later. History is keyed by occurrence precisely so it outlives the
+        # rule; hiding it would make points appear from nowhere.
+        shown = {o.key for o in occs}
+        for key, out in outcomes.items():
+            if key in shown or (person_id is not None and out["assignee_id"] != person_id):
+                continue
+            entries.append(Entry(Occurrence(
+                key=key, chore_id=key[0], date=key[1], person_id=out["assignee_id"], due=None,
+                rule_id=key[3] if key[2] == "rule" else None, unscheduled=True), out))
+        entries.sort(key=lambda e: (e.occurrence.date, e.occurrence.due or dt.time.max, e.occurrence.chore_id))
+        return entries
 
     def occurrence(self, key: OccurrenceKey, include_skipped: bool = False) -> Occurrence:
         """The occurrence a key names, as the calendar computes it today."""
@@ -604,4 +617,5 @@ def entries_json(entries: list[Entry]) -> Iterator[dict[str, Any]]:
                "person_id": o.person_id, "available": _iso(o.available), "due": _iso(o.due),
                "source": o.source, "rule_id": o.rule_id,
                "scheduled_person_id": o.scheduled_person_id, "override_id": o.override_id,
-               "skipped": o.skipped, "reason": o.reason, "group_id": o.group_id, "outcome": e.outcome}
+               "skipped": o.skipped, "reason": o.reason, "group_id": o.group_id,
+               "unscheduled": o.unscheduled, "outcome": e.outcome}
