@@ -192,3 +192,44 @@ def test_migrations_are_idempotent(tmp_path):
     schema.connect(p).close()
     conn = schema.connect(p)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == len(schema.MIGRATIONS)
+
+
+def test_swaps_are_not_limited_to_a_week(h):
+    # Tucker's Monday tomorrow for Eric's Sunday three months out.
+    far = D(2027, 1, 24)                                   # a Sunday
+    a, b = key_on(h, MON), key_on(h, far)
+    h.svc.swap(h.eric, a, b, "Tucker away; pays it back in January")
+    assert h.svc.occurrence(a).person_id == h.eric["id"]
+    assert h.svc.occurrence(b).person_id == h.tucker["id"]
+    # Everything in between is untouched.
+    assert h.svc.occurrence(key_on(h, D(2026, 11, 1))).person_id == h.eric["id"]
+
+
+def test_the_undone_side_of_a_swap_can_be_swapped_again(h):
+    T, C, E = h.tucker["id"], h.cass["id"], h.eric["id"]
+    sun, wed = key_on(h, SUN), key_on(h, WED)
+    first = h.svc.swap(h.eric, sun, wed, "Eric away Sunday")
+    h.svc.record(h.eric, wed, "done")                      # Eric did his half
+    # Tucker's half (Sunday) isn't done yet: he trades it on to Cass's
+    # Saturday a month later.
+    sat = key_on(h, D(2026, 11, 21))
+    second = h.svc.swap(h.tucker, sun, sat, "Tucker busy Sunday too")
+    assert h.svc.occurrence(sun).person_id == C
+    assert h.svc.occurrence(sat).person_id == T
+    # The first swap can't be undone now (Eric's half is recorded)...
+    with pytest.raises(Conflict):
+        h.svc.remove_override_group(h.eric, first)
+    # ...but undoing the second puts Sunday back to the first swap's answer.
+    h.svc.remove_override_group(h.tucker, second)
+    assert h.svc.occurrence(sun).person_id == T
+    assert h.svc.occurrence(sat).person_id == C
+    assert h.svc.occurrence(wed).person_id == E
+
+
+def test_points_go_to_whoever_does_it(h):
+    T, M = h.tucker["id"], h.mom["id"]
+    sun, wed = key_on(h, SUN), key_on(h, WED)
+    h.svc.swap(h.eric, sun, wed, "Eric away Sunday")
+    h.svc.record(h.tucker, sun, "done")                    # assigned to Tucker by the swap
+    h.svc.record(h.eric, wed, "covered", done_by=M, note="Eric stuck at work")   # not assigned at all
+    assert h.svc.balance(T) == 3 and h.svc.balance(M) == 3 and h.svc.balance(h.eric["id"]) == 0

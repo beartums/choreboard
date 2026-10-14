@@ -66,8 +66,19 @@ recorded against it stays attached.
 | covered | someone else did it, no fault | + the person who did it |
 | failed & covered | someone else did it instead | + coverer, − assignee (explicit) |
 
+**Points always go to whoever did the chore** — the assignee for `done`, the
+person named in `done_by` for `covered` and `failed_covered` — whether or not
+the schedule or an override had them on it.
+
 A *swap* is planned ahead (overrides); *covered* is what happened on the day
 (an outcome). Both exist because both happen.
+
+**Swaps are any two occurrences, any distance apart** — tomorrow's for one
+months away; nothing in between changes. Each side is independent once made:
+when one side is done, the other (still undone) side can be swapped again with
+yet another occurrence. Later overrides win, so undoing that second swap puts
+the occurrence back to what the first swap said. A swap can only be undone as a
+whole while neither of its sides has an outcome.
 
 ## Sign-in
 
