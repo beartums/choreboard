@@ -10,3 +10,4 @@ htmlcov/
 choreboard/static/
 web/node_modules/
 web/dist/
+*.egg-info/
