@@ -54,7 +54,8 @@ export interface RotationPlan {
  *  updated (its first, if several); extra rules are removed; people new to
  *  the rotation get a rule. */
 export function planRotation(choreId: number, rules: Rule[], want: Rotation, due: string | null,
-                             start: string | null = null, end: string | null = null): RotationPlan {
+                             start: string | null = null, end: string | null = null,
+                             available: string | null = null): RotationPlan {
   const current = rules.filter(isRotationRule);
   const days = new Map<number, Weekday[]>();
   for (const [d, pid] of Object.entries(want)) {
@@ -65,11 +66,12 @@ export function planRotation(choreId: number, rules: Rule[], want: Rotation, due
   const used = new Set<number>();
   for (const [pid, wd] of days) {
     const rule: RuleInput = { chore_id: choreId, person_id: pid, weekdays: wd, every_days: null, anchor: null,
-                              on: null, due, start, end };
+                              on: null, available, due, start, end };
     const existing = current.find((r) => r.person_id === pid && !used.has(r.id));
     if (existing) {
       used.add(existing.id);
-      const same = existing.due === due && existing.start === start && existing.end === end
+      const same = existing.due === due && (existing.available ?? null) === available
+        && existing.start === start && existing.end === end
         && (existing.weekdays ?? []).join() === wd.join();
       if (!same) plan.update.push({ id: existing.id, rule });
     } else {

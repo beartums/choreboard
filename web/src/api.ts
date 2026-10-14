@@ -31,9 +31,10 @@ export interface Rule {
   every_days: number | null;
   anchor: string | null;
   on: string | null;
-  due: string | null;
-  start: string | null;
-  end: string | null;
+  available: string | null;        // daily window start, "HH:MM"
+  due: string | null;              // daily window end
+  start: string | null;            // first day
+  end: string | null;              // last day
 }
 
 export type RuleInput = Omit<Rule, "id">;
@@ -56,6 +57,7 @@ export interface Entry {
   chore_id: number;
   date: string;
   person_id: number;
+  available: string | null;
   due: string | null;
   source: "rule" | "override";
   rule_id: number | null;
@@ -155,7 +157,7 @@ export const WEEKDAYS: { iso: Weekday; short: string }[] = [
 ];
 
 /** "Mon, Wed · 6 PM", "Every 3 days from Oct 20", "Oct 22 only" -- how a rule reads. */
-export function describeRule(r: Pick<Rule, "weekdays" | "every_days" | "anchor" | "on" | "due" | "start" | "end">): string {
+export function describeRule(r: Pick<Rule, "weekdays" | "every_days" | "anchor" | "on" | "available" | "due" | "start" | "end">): string {
   let when: string;
   if (r.weekdays?.length) {
     const days = [...r.weekdays].sort();
@@ -169,7 +171,8 @@ export function describeRule(r: Pick<Rule, "weekdays" | "every_days" | "anchor" 
     when = `${shortDate(r.on)} only`;
   }
   const bits = [when];
-  if (r.due) bits.push(`by ${clock(r.due)}`);
+  const w = timeWindow(r.available, r.due);
+  if (w) bits.push(w);
   if (r.start && r.end) bits.push(`${shortDate(r.start)}–${shortDate(r.end)}`);
   else if (r.start) bits.push(`from ${shortDate(r.start)}`);
   else if (r.end) bits.push(`until ${shortDate(r.end)}`);
@@ -187,4 +190,16 @@ export function clock(hhmm: string): string {
   const suffix = h < 12 ? "AM" : "PM";
   const h12 = h % 12 || 12;
   return m ? `${h12}:${String(m).padStart(2, "0")} ${suffix}` : `${h12} ${suffix}`;
+}
+
+/** "4–6 PM", "4 PM–9 AM"... for a daily window; "after 4 PM" or "by 6 PM" for half of one. */
+export function timeWindow(available: string | null, due: string | null): string {
+  if (available && due) {
+    const a = clock(available), d = clock(due);
+    const [as, ds] = [a.split(" ")[1], d.split(" ")[1]];
+    return as === ds ? `${a.split(" ")[0]}–${d}` : `${a}–${d}`;
+  }
+  if (available) return `after ${clock(available)}`;
+  if (due) return `by ${clock(due)}`;
+  return "";
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, describeRule, WEEKDAYS, type Chore, type Person, type Rule, type RuleInput } from "../api";
+import { api, describeRule, timeWindow, WEEKDAYS, type Chore, type Person, type Rule, type RuleInput } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 import { IconPicker } from "../components/IconPicker";
 import { isRotationRule, overlaps, planRotation, rotationOf, rotations, type Rotation, type RotationGroup } from "../rotation";
@@ -113,21 +113,24 @@ function RotationEditor({ chore, group, people, onSaved, isNew, onCancel, others
 }) {
   const initial = rotationOf(group.rules);
   const initialDue = group.rules[0]?.due ?? "";
+  const initialFrom = group.rules[0]?.available ?? "";
   const [want, setWant] = useState<Rotation>(initial);
   const [due, setDue] = useState(initialDue);
+  const [from, setFrom] = useState(initialFrom);
   const [start, setStart] = useState(group.start ?? "");
   const [end, setEnd] = useState(group.end ?? "");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setWant(rotationOf(group.rules)); setDue(group.rules[0]?.due ?? "");
+    setWant(rotationOf(group.rules)); setDue(group.rules[0]?.due ?? ""); setFrom(group.rules[0]?.available ?? "");
     setStart(group.start ?? ""); setEnd(group.end ?? "");
   }, [group]);
 
-  const plan = planRotation(chore.id, group.rules, want, due || null, start || null, end || null);
+  const plan = planRotation(chore.id, group.rules, want, due || null, start || null, end || null, from || null);
   const dirty = plan.create.length + plan.update.length + plan.remove.length > 0;
   const badRange = !!start && !!end && end < start;
+  const badWindow = !!from && !!due && from >= due;
 
   const clash = others.filter((o) => overlaps(o, { start: start || null, end: end || null }) && Object.keys(want).length > 0);
 
@@ -175,13 +178,19 @@ function RotationEditor({ chore, group, people, onSaved, isNew, onCancel, others
           </label>
         ))}
       </div>
-      <div className="grid3">
-        <label>Done by<input type="time" value={due} onChange={(e) => setDue(e.target.value)} /></label>
-        <label>Starts<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
-        <label>Ends<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
-      </div>
-      <p className="muted">{start ? `Takes effect ${start}.` : "In effect now."} {end ? `Last day ${end}.` : "No end date."}</p>
-      {badRange && <p className="error" role="alert">The end is before the start.</p>}
+      <fieldset className="grid2">
+        <legend>Each day</legend>
+        <label>Start time<input type="time" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+        <label>Due by<input type="time" value={due} onChange={(e) => setDue(e.target.value)} /></label>
+      </fieldset>
+      <fieldset className="grid2">
+        <legend>Dates</legend>
+        <label>First day<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+        <label>Last day<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+      </fieldset>
+      <p className="muted">{timeWindow(from || null, due || null) || "Any time of day"} · {start ? `from ${start}` : "in effect now"}{end ? `, last day ${end}` : ", no end date"}</p>
+      {badRange && <p className="error" role="alert">The last day is before the first.</p>}
+      {badWindow && <p className="error" role="alert">The start time is after the due time.</p>}
       {clash.map((o) => (
         <p key={o.key} className="note" role="status">
           Overlaps another rotation{o.start ? ` (from ${o.start})` : ""}: on shared days both apply.
@@ -193,9 +202,9 @@ function RotationEditor({ chore, group, people, onSaved, isNew, onCancel, others
       ))}
       <ErrorNote error={error} />
       <div className="actions">
-        <button onClick={save} disabled={!dirty || busy || badRange}>Save rotation</button>
+        <button onClick={save} disabled={!dirty || busy || badRange || badWindow}>Save rotation</button>
         {dirty && !isNew && <button className="ghost" onClick={() => {
-          setWant(initial); setDue(initialDue); setStart(group.start ?? ""); setEnd(group.end ?? "");
+          setWant(initial); setDue(initialDue); setFrom(initialFrom); setStart(group.start ?? ""); setEnd(group.end ?? "");
         }}>Reset</button>}
         {onCancel && isNew && <button className="ghost" onClick={onCancel}>Cancel</button>}
       </div>
@@ -239,11 +248,13 @@ export function RuleForm({ choreId, people, initial, onSaved, onCancel }:
   const [anchor, setAnchor] = useState(initial?.anchor ?? today);
   const [on, setOn] = useState(initial?.on ?? today);
   const [due, setDue] = useState(initial?.due ?? "");
+  const [from, setFrom] = useState(initial?.available ?? "");
   const [start, setStart] = useState(initial?.start ?? "");
   const [end, setEnd] = useState(initial?.end ?? "");
   const [error, setError] = useState<unknown>(null);
 
-  const valid = person !== "" && (kind !== "every" || every >= 1);
+  const badWindow = !!from && !!due && from >= due;
+  const valid = person !== "" && (kind !== "every" || every >= 1) && !badWindow;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -254,6 +265,7 @@ export function RuleForm({ choreId, people, initial, onSaved, onCancel }:
       weekdays: null,
       every_days: kind === "every" ? every : null, anchor: kind === "every" ? anchor : null,
       on: kind === "once" ? on : null,
+      available: from || null,
       due: due || null,
       start: kind === "once" ? null : start || null, end: kind === "once" ? null : end || null,
     };
@@ -288,11 +300,19 @@ export function RuleForm({ choreId, people, initial, onSaved, onCancel }:
         </div>
       )}
       {kind === "once" && <label>On<input type="date" value={on} onChange={(e) => setOn(e.target.value)} required /></label>}
-      <div className="grid3">
-        <label>Done by<input type="time" value={due} onChange={(e) => setDue(e.target.value)} /></label>
-        {kind !== "once" && <label>From<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>}
-        {kind !== "once" && <label>Until<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>}
-      </div>
+      <fieldset className="grid2">
+        <legend>Each day</legend>
+        <label>Start time<input type="time" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+        <label>Due by<input type="time" value={due} onChange={(e) => setDue(e.target.value)} /></label>
+      </fieldset>
+      {kind !== "once" && (
+        <fieldset className="grid2">
+          <legend>Dates</legend>
+          <label>First day<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+          <label>Last day<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+        </fieldset>
+      )}
+      {badWindow && <p className="error" role="alert">The start time is after the due time.</p>}
       <ErrorNote error={error} />
       <div className="actions">
         <button type="submit" disabled={!valid}>{initial ? "Save" : "Add schedule"}</button>

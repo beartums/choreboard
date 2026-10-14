@@ -34,7 +34,7 @@ written per day until something *happens* on it.
 |---|---|
 | person | name, colour, identity (email from the signed-in token), role |
 | chore | title, description, points, icon |
-| rule | chore, person, pattern, due time, start/end date. Editable. |
+| rule | chore, person, pattern, daily window (start time, due time), first/last date. Editable. |
 | override | chore, date, kind, reason, who, `group_id` |
 | outcome | occurrence key, status, who did it, note, when |
 | ledger | person, ±points, kind, note, outcome link |
@@ -130,3 +130,15 @@ Out of the first version: rewards, streaks, photos, notifications.
 - **One request at a time.** A single SQLite connection behind an asyncio lock:
   simpler than a pool, and a household doesn't need concurrency.
 - **`/healthz` is unauthenticated** (for probes); everything else needs a caller.
+
+## Decisions made since
+
+- **A daily time window** (v0.4.0): `available` is the start of the day's
+  window ("not before"), `due` its end ("done by"); either alone is fine, and
+  the start must be before the due time. Nothing is enforced against the clock
+  yet -- it is shown and sorted by. Migration 3 adds the column; old rules
+  have no start time.
+- **Rotations** are all of a chore's weekday rules, grouped by their date
+  range; a chore can have several (a summer rotation, a new one from next
+  month). Overlapping rotations both apply on the shared days, so the UI warns
+  and offers to end the earlier one the day before the later one starts.

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, clock, type Chore, type Entry, type Person, type Status } from "../api";
+import { api, timeWindow, type Chore, type Entry, type Person, type Status } from "../api";
 import { addDays, dayLabel, today } from "../dates";
 import { ErrorNote } from "./ErrorNote";
 
@@ -44,7 +44,7 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
           <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <p className="muted">
-          {dayLabel(entry.date)}{entry.due && ` · by ${clock(entry.due)}`} · <strong>{name(entry.person_id)}</strong>
+          {dayLabel(entry.date)}{timeWindow(entry.available, entry.due) && ` · ${timeWindow(entry.available, entry.due)}`} · <strong>{name(entry.person_id)}</strong>
           {entry.scheduled_person_id != null && ` (instead of ${name(entry.scheduled_person_id)})`}
           {chore && ` · ${chore.points} pt${chore.points === 1 ? "" : "s"}`}
         </p>

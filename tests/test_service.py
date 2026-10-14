@@ -293,3 +293,22 @@ def test_undo_a_single_override_by_id(h):
     occ = h.svc.reassign(h.eric, key_on(h, MON), h.mom["id"], "sleepover")
     assert h.svc.remove_override_group(h.eric, str(occ.override_id)) == 1
     assert h.svc.occurrence(occ.key).person_id == h.tucker["id"]
+
+
+def test_a_daily_time_window(h):
+    rule = h.svc.rules(h.dog["id"])[0]
+    w = h.svc.update_rule(h.eric, rule.id, rule.chore_id, rule.person_id, rule.pattern,
+                          available=dt.time(16), due=dt.time(18))
+    assert (w.available, w.due) == (dt.time(16), dt.time(18))
+    occ = h.svc.calendar(MON, MON)[0].occurrence
+    assert (occ.available, occ.due) == (dt.time(16), dt.time(18))
+    assert list(entries_json(h.svc.calendar(MON, MON)))[0]["available"] == "16:00"
+    with pytest.raises(Invalid, match="before the due"):
+        h.svc.update_rule(h.eric, rule.id, rule.chore_id, rule.person_id, rule.pattern,
+                          available=dt.time(18), due=dt.time(17))
+    # A start time alone is fine ("any time after 4").
+    h.svc.update_rule(h.eric, rule.id, rule.chore_id, rule.person_id, rule.pattern, available=dt.time(16))
+    extra = h.svc.add(h.eric, h.dog["id"], WED, h.mom["id"], "extra", due=dt.time(9), available=dt.time(7))
+    assert (extra.available, extra.due) == (dt.time(7), dt.time(9))
+    with pytest.raises(Invalid):
+        h.svc.add(h.eric, h.dog["id"], WED, h.mom["id"], "x", due=dt.time(7), available=dt.time(9))

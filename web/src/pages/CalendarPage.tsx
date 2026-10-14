@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, clock, type Chore, type Entry, type Person } from "../api";
+import { api, timeWindow, type Chore, type Entry, type Person } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 import { OccurrencePanel } from "../components/OccurrencePanel";
 import { addDays, addMonths, dayLabel, monthGrid, monthLabel, parse, today, weekStart } from "../dates";
@@ -147,7 +147,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
     return (
       <button className={cls} onClick={() => ctx.open(e)}
         aria-label={`${c?.title ?? "Chore"}, ${p?.name ?? "?"}${state ? `, ${state}` : ""}`}
-        title={`${c?.title ?? "Chore"} — ${p?.name}${e.due ? ` by ${clock(e.due)}` : ""}${state ? ` (${state})` : ""}`}>
+        title={`${c?.title ?? "Chore"} — ${p?.name}${timeWindow(e.available, e.due) ? `, ${timeWindow(e.available, e.due)}` : ""}${state ? ` (${state})` : ""}`}>
         <span aria-hidden>{c?.icon || "•"}</span>
         <span className={`swatch c-${p?.color || "none"}`} aria-hidden />
         <span className="chipname">{p?.name}</span>
@@ -162,7 +162,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
         <strong>{c?.title ?? `Chore ${e.chore_id}`}</strong>
         <span className="muted block">
           <span className={`swatch c-${p?.color || "none"}`} aria-hidden /> {p?.name ?? "?"}
-          {e.due && ` · by ${clock(e.due)}`}
+          {timeWindow(e.available, e.due) && ` · ${timeWindow(e.available, e.due)}`}
           {moved && ` · instead of ${ctx.person(e.scheduled_person_id)?.name}`}
           {e.source === "override" && !moved && !e.skipped && e.rule_id == null && " · extra"}
         </span>

@@ -3,7 +3,7 @@ import type { Rule } from "./api";
 import { isRotationRule, overlaps, planRotation, rotationOf, rotations } from "./rotation";
 
 const rule = (id: number, person_id: number, weekdays: Rule["weekdays"], extra: Partial<Rule> = {}): Rule => ({
-  id, chore_id: 1, person_id, weekdays, every_days: null, anchor: null, on: null, due: "18:00", start: null, end: null, ...extra,
+  id, chore_id: 1, person_id, weekdays, every_days: null, anchor: null, on: null, available: null, due: "18:00", start: null, end: null, ...extra,
 });
 // The dog: Tucker Mon/Wed, Cass Tue/Sat, Mom Thu/Fri, Eric Sun.
 const DOG = [rule(1, 2, [1, 3]), rule(2, 3, [2, 6]), rule(3, 4, [4, 5]), rule(4, 1, [7])];
@@ -65,5 +65,19 @@ describe("overlaps", () => {
     expect(overlaps({ start: null, end: null }, { start: "2027-06-15", end: "2027-08-31" })).toBe(true);
     expect(overlaps({ start: null, end: "2027-06-14" }, { start: "2027-06-15", end: null })).toBe(false);
     expect(overlaps({ start: "2027-06-15", end: "2027-06-15" }, { start: "2027-06-15", end: null })).toBe(true);
+  });
+});
+
+import { timeWindow } from "./api";
+describe("timeWindow", () => {
+  it("reads naturally", () => {
+    expect(timeWindow("16:00", "18:00")).toBe("4–6 PM");
+    expect(timeWindow("09:30", "13:00")).toBe("9:30 AM–1 PM");
+    expect(timeWindow("16:00", null)).toBe("after 4 PM");
+    expect(timeWindow(null, "18:00")).toBe("by 6 PM");
+    expect(timeWindow(null, null)).toBe("");
+  });
+  it("a window change updates the rotation's rules", () => {
+    expect(planRotation(1, DOG, rotationOf(DOG), "18:00", null, null, "16:00").update).toHaveLength(4);
   });
 });

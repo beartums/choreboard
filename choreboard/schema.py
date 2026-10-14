@@ -115,6 +115,11 @@ MIGRATIONS: list[str] = [
         revoked_at  TEXT
     );
     """,
+    # 3: a daily time window -- a start time ("not before") beside `due`.
+    """
+    ALTER TABLE rules ADD COLUMN available TEXT;
+    ALTER TABLE overrides ADD COLUMN available TEXT;
+    """,
 ]
 
 

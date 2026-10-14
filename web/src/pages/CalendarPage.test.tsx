@@ -14,7 +14,7 @@ const MON = weekStart(today());
 
 function entry(dayOffset: number, person: number, extra: Partial<Entry> = {}): Entry {
   const date = addDays(MON, dayOffset);
-  return { id: `7:${date}:rule:${person}`, chore_id: 7, date, person_id: person, due: "18:00", source: "rule",
+  return { id: `7:${date}:rule:${person}`, chore_id: 7, date, person_id: person, available: null, due: "18:00", source: "rule",
            rule_id: person, scheduled_person_id: null, override_id: null, skipped: false, reason: "", group_id: null,
            outcome: null, ...extra };
 }

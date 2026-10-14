@@ -220,7 +220,8 @@ class Service:
         return Rule(id=row["id"], chore_id=row["chore_id"], person_id=row["person_id"],
                     pattern=Pattern(weekdays=wd, every_days=row["every_days"], anchor=_d(row["anchor"]),
                                     on=_d(row["on_date"])),
-                    due=_t(row["due"]), start=_d(row["start_date"]), end=_d(row["end_date"]))
+                    due=_t(row["due"]), start=_d(row["start_date"]), end=_d(row["end_date"]),
+                    available=_t(row["available"]))
 
     def rule(self, rid: int) -> Rule:
         row = self._one("SELECT * FROM rules WHERE id = ?", rid)
@@ -234,36 +235,40 @@ class Service:
         return [self._rule(r) for r in rows]
 
     def _rule_values(self, chore_id: int, person_id: int, pattern: Pattern, due: dt.time | None,
-                     start: dt.date | None, end: dt.date | None) -> tuple[Any, ...]:
+                     start: dt.date | None, end: dt.date | None,
+                     available: dt.time | None = None) -> tuple[Any, ...]:
         self._chore(chore_id)
         self._person(person_id)
         if start and end and end < start:
             raise Invalid("end is before start")
+        if available and due and available >= due:
+            raise Invalid("the start time must be before the due time")
         wd = ",".join(str(d) for d in sorted(pattern.weekdays)) if pattern.weekdays else None
         return (chore_id, person_id, wd, pattern.every_days, _iso(pattern.anchor), _iso(pattern.on),
-                _iso(due), _iso(start), _iso(end))
+                _iso(due), _iso(start), _iso(end), _iso(available))
 
     def create_rule(self, actor: dict[str, Any] | None, chore_id: int, person_id: int, pattern: Pattern, *,
                     due: dt.time | None = None, start: dt.date | None = None,
-                    end: dt.date | None = None) -> Rule:
+                    end: dt.date | None = None, available: dt.time | None = None) -> Rule:
         self._check(actor, "rules.write")
-        vals = self._rule_values(chore_id, person_id, pattern, due, start, end)
+        vals = self._rule_values(chore_id, person_id, pattern, due, start, end, available)
         cur = self.db.execute(
-            "INSERT INTO rules (chore_id, person_id, weekdays, every_days, anchor, on_date, due, start_date, end_date)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", vals)
+            "INSERT INTO rules (chore_id, person_id, weekdays, every_days, anchor, on_date, due, start_date, end_date,"
+            " available) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", vals)
         return self.rule(cur.lastrowid)
 
     def update_rule(self, actor: dict[str, Any] | None, rid: int, chore_id: int, person_id: int,
                     pattern: Pattern, *, due: dt.time | None = None, start: dt.date | None = None,
-                    end: dt.date | None = None) -> Rule:
+                    end: dt.date | None = None, available: dt.time | None = None) -> Rule:
         """Edit in place. Past outcomes are keyed by occurrence and keep their
         own assignee, so nothing recorded changes."""
         self._check(actor, "rules.write")
         self.rule(rid)
-        vals = self._rule_values(chore_id, person_id, pattern, due, start, end)
+        vals = self._rule_values(chore_id, person_id, pattern, due, start, end, available)
         self.db.execute(
             "UPDATE rules SET chore_id = ?, person_id = ?, weekdays = ?, every_days = ?, anchor = ?, on_date = ?,"
-            " due = ?, start_date = ?, end_date = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+            " due = ?, start_date = ?, end_date = ?, available = ?,"
+            " updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
             " WHERE id = ?", (*vals, rid))
         return self.rule(rid)
 
@@ -279,7 +284,8 @@ class Service:
     def _override(row: sqlite3.Row) -> Override:
         return Override(id=row["id"], chore_id=row["chore_id"], date=dt.date.fromisoformat(row["date"]),
                         kind=row["kind"], rule_id=row["rule_id"], person_id=row["person_id"],
-                        due=_t(row["due"]), group_id=row["group_id"], reason=row["reason"])
+                        due=_t(row["due"]), group_id=row["group_id"], reason=row["reason"],
+                        available=_t(row["available"]))
 
     def _overrides(self, start: dt.date, end: dt.date) -> list[Override]:
         return [self._override(r) for r in self._all(
@@ -318,10 +324,10 @@ class Service:
 
     def _insert_override(self, o: Override, actor: dict[str, Any] | None) -> int:
         cur = self.db.execute(
-            "INSERT INTO overrides (chore_id, date, kind, rule_id, person_id, due, group_id, reason, created_by)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (o.chore_id, o.date.isoformat(), o.kind, o.rule_id, o.person_id, _iso(o.due), o.group_id,
-             o.reason, (actor or {}).get("id")))
+            "INSERT INTO overrides (chore_id, date, kind, rule_id, person_id, due, available, group_id, reason,"
+            " created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (o.chore_id, o.date.isoformat(), o.kind, o.rule_id, o.person_id, _iso(o.due), _iso(o.available),
+             o.group_id, o.reason, (actor or {}).get("id")))
         return int(cur.lastrowid)
 
     def reassign(self, actor: dict[str, Any] | None, key: OccurrenceKey, person_id: int, reason: str) -> Occurrence:
@@ -351,14 +357,17 @@ class Service:
         return self.occurrence(key, include_skipped=True)
 
     def add(self, actor: dict[str, Any] | None, chore_id: int, date: dt.date, person_id: int,
-            reason: str, due: dt.time | None = None) -> Occurrence:
+            reason: str, due: dt.time | None = None, available: dt.time | None = None) -> Occurrence:
         """An extra occurrence of a chore for someone on a date."""
         self._check(actor, "overrides.write")
         self._chore(chore_id)
         self._person(person_id)
+        try:
+            o = Override(0, chore_id, date, "add", person_id=person_id, due=due, available=available, reason=reason)
+        except ValueError as e:
+            raise Invalid(str(e)) from None
         with self._tx():
-            oid = self._insert_override(Override(0, chore_id, date, "add", person_id=person_id, due=due,
-                                                 reason=reason), actor)
+            oid = self._insert_override(o, actor)
         return self.occurrence((chore_id, date, "add", oid))
 
     def swap(self, actor: dict[str, Any] | None, a: OccurrenceKey, b: OccurrenceKey, reason: str) -> str:
@@ -582,6 +591,7 @@ def entries_json(entries: list[Entry]) -> Iterator[dict[str, Any]]:
     for e in entries:
         o = e.occurrence
         yield {"id": key_str(o.key), "chore_id": o.chore_id, "date": o.date.isoformat(),
-               "person_id": o.person_id, "due": _iso(o.due), "source": o.source, "rule_id": o.rule_id,
+               "person_id": o.person_id, "available": _iso(o.available), "due": _iso(o.due),
+               "source": o.source, "rule_id": o.rule_id,
                "scheduled_person_id": o.scheduled_person_id, "override_id": o.override_id,
                "skipped": o.skipped, "reason": o.reason, "group_id": o.group_id, "outcome": e.outcome}

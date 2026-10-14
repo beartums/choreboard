@@ -63,7 +63,8 @@ class RuleIn(BaseModel):
     every_days: int | None = None
     anchor: dt.date | None = None
     on: dt.date | None = None
-    due: dt.time | None = None
+    available: dt.time | None = Field(None, description="start of the daily window: not before")
+    due: dt.time | None = Field(None, description="end of the daily window: done by")
     start: dt.date | None = None
     end: dt.date | None = None
 
@@ -88,6 +89,7 @@ class AddIn(BaseModel):
     chore_id: int
     date: dt.date
     person_id: int
+    available: dt.time | None = None
     due: dt.time | None = None
     reason: str = ""
 
@@ -129,7 +131,9 @@ def _rule_json(r: Any) -> dict[str, Any]:
     p = r.pattern
     return {"id": r.id, "chore_id": r.chore_id, "person_id": r.person_id,
             "weekdays": sorted(p.weekdays) if p.weekdays else None, "every_days": p.every_days,
-            "anchor": p.anchor, "on": p.on, "due": r.due.strftime("%H:%M") if r.due else None,
+            "anchor": p.anchor, "on": p.on,
+            "available": r.available.strftime("%H:%M") if r.available else None,
+            "due": r.due.strftime("%H:%M") if r.due else None,
             "start": r.start, "end": r.end}
 
 
@@ -221,12 +225,12 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.post("/api/rules", status_code=201)
     def create_rule(body: RuleIn, a: dict = Depends(actor)) -> dict[str, Any]:
         return _rule_json(svc.create_rule(a, body.chore_id, body.person_id, body.pattern(), due=body.due,
-                                          start=body.start, end=body.end))
+                                          start=body.start, end=body.end, available=body.available))
 
     @app.put("/api/rules/{rid}")
     def update_rule(rid: int, body: RuleIn, a: dict = Depends(actor)) -> dict[str, Any]:
         return _rule_json(svc.update_rule(a, rid, body.chore_id, body.person_id, body.pattern(), due=body.due,
-                                          start=body.start, end=body.end))
+                                          start=body.start, end=body.end, available=body.available))
 
     @app.delete("/api/rules/{rid}", status_code=204)
     def delete_rule(rid: int, a: dict = Depends(actor)) -> None:
@@ -255,7 +259,7 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
 
     @app.post("/api/occurrences", status_code=201)
     def add(body: AddIn, a: dict = Depends(actor)) -> dict[str, Any]:
-        return _occ(svc.add(a, body.chore_id, body.date, body.person_id, body.reason, body.due))
+        return _occ(svc.add(a, body.chore_id, body.date, body.person_id, body.reason, body.due, body.available))
 
     @app.post("/api/swaps", status_code=201)
     def swap(body: SwapIn, a: dict = Depends(actor)) -> dict[str, Any]:

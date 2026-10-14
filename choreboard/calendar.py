@@ -54,9 +54,14 @@ class Rule:
     chore_id: int
     person_id: int
     pattern: Pattern
-    due: dt.time | None = None
+    due: dt.time | None = None              # end of the day's window: done by
     start: Date | None = None
     end: Date | None = None
+    available: dt.time | None = None        # start of the day's window: not before
+
+    def __post_init__(self) -> None:
+        if self.available and self.due and self.available >= self.due:
+            raise ValueError("the start time must be before the due time")
 
     def occurs(self, d: Date) -> bool:
         if self.start is not None and d < self.start:
@@ -85,8 +90,11 @@ class Override:
     due: dt.time | None = None
     group_id: str | None = None
     reason: str = ""
+    available: dt.time | None = None
 
     def __post_init__(self) -> None:
+        if self.available and self.due and self.available >= self.due:
+            raise ValueError("the start time must be before the due time")
         if self.kind in ("reassign", "skip") and self.rule_id is None:
             raise ValueError(f"a {self.kind} override needs the rule it changes")
         if self.kind in ("reassign", "add") and self.person_id is None:
@@ -114,6 +122,7 @@ class Occurrence:
     skipped: bool = False
     reason: str = ""
     group_id: str | None = None
+    available: dt.time | None = None
 
     @property
     def source(self) -> str:
@@ -159,7 +168,7 @@ def calendar(rules: Iterable[Rule], overrides: Iterable[Override], start: Date, 
             if not r.occurs(d):
                 continue
             occ = Occurrence(key=(r.chore_id, d, "rule", r.id), chore_id=r.chore_id, date=d,
-                             person_id=r.person_id, due=r.due, rule_id=r.id)
+                             person_id=r.person_id, due=r.due, rule_id=r.id, available=r.available)
             o = by_rule_date.get((r.id, d))
             if o is not None and o.chore_id == r.chore_id:
                 common = dict(override_id=o.id, reason=o.reason, group_id=o.group_id)
@@ -174,14 +183,15 @@ def calendar(rules: Iterable[Rule], overrides: Iterable[Override], start: Date, 
     for o in adds:
         assert o.person_id is not None
         out.append(Occurrence(key=(o.chore_id, o.date, "add", o.id), chore_id=o.chore_id,
-                              date=o.date, person_id=o.person_id, due=o.due, rule_id=None,
+                              date=o.date, person_id=o.person_id, due=o.due, available=o.available, rule_id=None,
                               override_id=o.id, reason=o.reason, group_id=o.group_id))
 
     if person_id is not None:
         out = [x for x in out if x.person_id == person_id]
     if not include_skipped:
         out = [x for x in out if not x.skipped]
-    out.sort(key=lambda x: (x.date, x.due or dt.time.max, x.chore_id, x.key[2], x.key[3]))
+    # By due time, then start time; anything untimed last.
+    out.sort(key=lambda x: (x.date, x.due or dt.time.max, x.available or dt.time.max, x.chore_id, x.key[2], x.key[3]))
     return out
 
 

@@ -127,3 +127,6 @@ section.wide { margin: 0 calc(50% - min(50vw, 640px)); }
   .grid.week .dow { display: none; }
   .grid.week .cell { min-height: 0; }
 }
+
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: .5rem .75rem .75rem; margin: 0; }
+legend { font-size: .8rem; color: var(--muted); padding: 0 .3rem; }

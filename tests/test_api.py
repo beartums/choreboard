@@ -204,3 +204,15 @@ def test_serves_the_ui_with_browser_routes(tmp_path):
     assert c.get("/api/nope").status_code == 404 and c.get("/api/nope").json()["error"]
     assert c.get("/api/me").status_code == 401, "API routes still win"
     assert c.get("/../pyproject.toml").status_code in (200, 404) and "root" in c.get("/../pyproject.toml").text
+
+
+def test_rule_time_window_over_http(client, home):
+    E = home["E"]
+    first = client.get("/api/rules", headers=E).json()[0]
+    body = {k: first[k] for k in ("chore_id", "person_id", "weekdays")} | {"available": "16:00", "due": "18:00"}
+    r = client.put(f"/api/rules/{first['id']}", json=body, headers=E)
+    assert r.status_code == 200 and (r.json()["available"], r.json()["due"]) == ("16:00", "18:00")
+    cal = client.get("/api/calendar?from=2026-10-19&to=2026-10-19", headers=E).json()
+    assert (cal[0]["available"], cal[0]["due"]) == ("16:00", "18:00")
+    bad = client.put(f"/api/rules/{first['id']}", json=body | {"available": "19:00"}, headers=E)
+    assert bad.status_code == 400 and "before the due" in bad.json()["error"]

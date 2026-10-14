@@ -104,18 +104,40 @@ describe("rotation dates", () => {
     renderAt("/chores/7");
     const grid = await screen.findByLabelText("Weekly rotation");
     await userEvent.selectOptions(within(grid).getByLabelText("Mon"), "Tucker");
-    await userEvent.type(within(grid).getByLabelText("Starts"), "2026-11-02");
+    await userEvent.type(within(grid).getByLabelText("First day"), "2026-11-02");
     await userEvent.click(within(grid).getByRole("button", { name: "Save rotation" }));
     await waitFor(() => expect(s.rules).toEqual([expect.objectContaining({ person_id: 2, weekdays: [1], start: "2026-11-02" })]));
 
     await userEvent.click(await screen.findByRole("button", { name: "Add another rotation" }));
     const fresh = await screen.findByLabelText("New rotation");
     await userEvent.selectOptions(within(fresh).getByLabelText("Fri"), "Eric");
-    await userEvent.type(within(fresh).getByLabelText("Starts"), "2027-06-15");
-    await userEvent.type(within(fresh).getByLabelText("Ends"), "2027-08-31");
+    await userEvent.type(within(fresh).getByLabelText("First day"), "2027-06-15");
+    await userEvent.type(within(fresh).getByLabelText("Last day"), "2027-08-31");
     await userEvent.click(within(fresh).getByRole("button", { name: "Save rotation" }));
     await waitFor(() => expect(s.rules).toHaveLength(2));
     expect(s.rules[1]).toMatchObject({ person_id: 1, weekdays: [5], start: "2027-06-15", end: "2027-08-31" });
     expect(s.rules[0]).toMatchObject({ start: "2026-11-02" }), "the first rotation is untouched";
+  });
+});
+
+
+describe("daily time window", () => {
+  it("a rotation can run between two times each day, and a backwards window is refused", async () => {
+    const people = [{ id: 2, name: "Tucker", color: "", email: null, role: "member" as const, active: 1 }];
+    const s = fakeApi({ people, chores: [{ id: 7, title: "Dog", description: "", icon: "🐕", points: 3, active: 1 }] });
+    renderAt("/chores/7");
+    const grid = await screen.findByLabelText("Weekly rotation");
+    await userEvent.selectOptions(within(grid).getByLabelText("Mon"), "Tucker");
+    await userEvent.type(within(grid).getByLabelText("Start time"), "18:00");
+    await userEvent.type(within(grid).getByLabelText("Due by"), "16:00");
+    expect(within(grid).getByRole("alert")).toHaveTextContent("start time is after the due time");
+    expect(within(grid).getByRole("button", { name: "Save rotation" })).toBeDisabled();
+    await userEvent.clear(within(grid).getByLabelText("Start time"));
+    await userEvent.type(within(grid).getByLabelText("Start time"), "16:00");
+    await userEvent.clear(within(grid).getByLabelText("Due by"));
+    await userEvent.type(within(grid).getByLabelText("Due by"), "18:00");
+    expect(within(grid).getByText(/4–6 PM/)).toBeInTheDocument();
+    await userEvent.click(within(grid).getByRole("button", { name: "Save rotation" }));
+    await waitFor(() => expect(s.rules[0]).toMatchObject({ available: "16:00", due: "18:00", weekdays: [1] }));
   });
 });
