@@ -5,6 +5,8 @@ import { ErrorNote } from "./components/ErrorNote";
 import { CalendarPage } from "./pages/CalendarPage";
 import { ChoreDetail } from "./pages/ChoreDetail";
 import { ChoresPage } from "./pages/ChoresPage";
+import { useUnread } from "./components/useUnread";
+import { InboxPage } from "./pages/InboxPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { SetupPage } from "./pages/SetupPage";
@@ -19,9 +21,13 @@ export function App() {
   useEffect(load, [load]);
 
   if (error) return <main className="page"><ErrorNote error={error} /></main>;
+  if (me && !me.needs_setup) return <Shell me={me} />;
   if (!me) return <main className="page"><p className="muted">Loading…</p></main>;
-  if (me.needs_setup) return <SetupPage email={me.email} onDone={load} />;
+  return <SetupPage email={me.email} onDone={load} />;
+}
 
+function Shell({ me }: { me: Me }) {
+  const { unread } = useUnread();
   return (
     <div className="shell">
       <header className="top">
@@ -30,9 +36,11 @@ export function App() {
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/chores">Chores</NavLink>
           <NavLink to="/people">People</NavLink>
-          <NavLink to="/notifications">Notifications</NavLink>
+          <NavLink to="/inbox" aria-label={unread ? `Inbox, ${unread} unread` : "Inbox"}>
+            Inbox{unread > 0 && <span className="count" aria-hidden>{unread > 99 ? "99+" : unread}</span>}
+          </NavLink>
         </nav>
-        <span className="who" title={me.email}>{me.person?.name}</span>
+        <NavLink to="/notifications" className="who" title={`${me.email} · notification settings`}>{me.person?.name}</NavLink>
       </header>
       <main className="page">
         <Routes>
@@ -41,6 +49,7 @@ export function App() {
           <Route path="/chores" element={<ChoresPage />} />
           <Route path="/chores/:id" element={<ChoreDetail />} />
           <Route path="/people" element={<PeoplePage />} />
+          <Route path="/inbox" element={<InboxPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="*" element={<p>Nothing here. <NavLink to="/chores">Chores</NavLink></p>} />
         </Routes>

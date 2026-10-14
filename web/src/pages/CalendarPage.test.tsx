@@ -180,3 +180,10 @@ describe("recorded but unscheduled", () => {
     expect(within(panel).getByRole("button", { name: "Undo this" })).toBeInTheDocument();
   });
 });
+
+describe("calendar ?date=", () => {
+  it("opens on the week of the given date", async () => {
+    render(<MemoryRouter initialEntries={["/calendar?date=2027-01-20"]}><CalendarPage me={ERIC} /></MemoryRouter>);
+    await waitFor(() => expect(s.calls.some((c) => c.path.startsWith("/api/calendar?from=2027-01-18&to=2027-01-24"))).toBe(true));
+  });
+});

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, timeWindow, type Chore, type Entry, type Person } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 import { OccurrencePanel } from "../components/OccurrencePanel";
@@ -23,8 +24,13 @@ function savedView(): View {
  *  what was recorded -- as an agenda, a week grid or a month grid. Click
  *  anything to act on it. */
 export function CalendarPage({ me }: { me: Person }) {
+  const [params] = useSearchParams();
   const [view, setViewState] = useState<View>(savedView);
-  const [anchor, setAnchor] = useState(today);          // any day in the period shown
+  // Any day in the period shown; ?date= (from a notification) opens there.
+  const [anchor, setAnchor] = useState(() => {
+    const d = params.get("date");
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : today();
+  });
   const [mine, setMine] = useState(false);
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [chores, setChores] = useState<Chore[]>([]);

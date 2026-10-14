@@ -1,7 +1,7 @@
 // An in-memory stand-in for the HTTP API, behind `fetch`, so pages are tested
 // against real request/response shapes without a server.
 import { vi } from "vitest";
-import type { Chore, Entry, Person, Rule } from "../api";
+import type { Chore, Entry, InboxItem, Person, Rule } from "../api";
 
 export interface FakeState {
   me: { email: string; person: Person | null; via: string; scopes: string[]; needs_setup: boolean };
@@ -13,6 +13,7 @@ export interface FakeState {
   subs: { id: number; event: string; channel: string; chore_id: number | null }[];
   channels: Record<string, { address: string | null; enabled: boolean; default: boolean }>;
   configured: string[];
+  inbox: InboxItem[];
   calls: { method: string; path: string; body?: unknown }[];
 }
 
@@ -20,7 +21,7 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
   const eric: Person = { id: 1, name: "Eric", color: "", email: "eric@example.com", role: "admin", active: 1 };
   const s: FakeState = {
     me: { email: "eric@example.com", person: eric, via: "dev", scopes: ["read", "write"], needs_setup: false },
-    people: [eric], chores: [], rules: [], entries: [], balances: {}, subs: [], configured: ["email"],
+    people: [eric], chores: [], rules: [], entries: [], balances: {}, subs: [], configured: ["email"], inbox: [],
     channels: { email: { address: "eric@example.com", enabled: true, default: true },
                 discord: { address: null, enabled: false, default: true } },
     calls: [], ...init,
@@ -125,6 +126,20 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     }
     if (p === "/api/me/notifications") return json(200, { channels: s.channels, subscriptions: s.subs });
     if (p === "/api/me/deliveries") return json(200, []);
+    if (p === "/api/me/inbox") {
+      const only = url.searchParams.get("unread") === "true";
+      return json(200, { unread: s.inbox.filter((n) => !n.read_at).length,
+                         items: s.inbox.filter((n) => !only || !n.read_at) });
+    }
+    if (p === "/api/me/inbox/read" && method === "POST") {
+      let changed = 0;
+      for (const n of s.inbox) {
+        if (body.ids && !body.ids.includes(n.id)) continue;
+        if (body.read && !n.read_at) { n.read_at = "now"; changed++; }
+        if (!body.read && n.read_at) { n.read_at = null; changed++; }
+      }
+      return json(200, { changed, unread: s.inbox.filter((n) => !n.read_at).length });
+    }
     if (p === "/api/me/subscriptions" && method === "POST") {
       const sub = { id: next++, ...body };
       s.subs.push(sub);
