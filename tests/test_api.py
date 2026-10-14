@@ -167,7 +167,7 @@ def test_auto_join_off():
 
 
 def test_docs_and_health(client):
-    assert client.get("/healthz").json() == {"status": "ok"}
+    assert client.get("/healthz").json()["status"] == "ok"
     assert "/api/calendar" in client.get("/openapi.json").json()["paths"]
 
 

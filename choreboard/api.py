@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -169,7 +170,7 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:
         svc.db.execute("SELECT 1")
-        return {"status": "ok"}
+        return {"status": "ok", "version": os.environ.get("CHOREBOARD_VERSION", "dev")}
 
     @app.get("/api/me")
     def me(c: Caller = Depends(caller)) -> dict[str, Any]:
