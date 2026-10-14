@@ -74,6 +74,8 @@ def test_a_swap_tells_the_other_person_in_plain_words(h):
 
 
 def test_when_the_other_person_swaps_it_says_so(h):
+    h.svc.update_person(h.eric, h.tucker["id"], role="admin")    # an admin's swap is immediate
+    h.tucker["role"] = "admin"
     h.svc.subscribe(h.eric, h.eric["id"], "swapped", "email")
     h.svc.swap(h.tucker, key(h, WED), key(h, SUN), "practice")
     [d] = queued(h, h.eric)
@@ -96,6 +98,7 @@ def test_missed_and_excused_and_covered(h):
 
 def test_done_by_yourself_is_not_news(h):
     h.svc.subscribe(h.tucker, h.tucker["id"], "done_by_other", "email")
+    h.svc.clock = lambda: dt.datetime(2026, 10, 19, 17, 30)      # Monday, before the 6 PM due time
     h.svc.record(h.tucker, key(h, MON), "done")
     assert queued(h, h.tucker) == []
     h.svc.record(h.eric, key(h, WED), "done")
@@ -119,6 +122,8 @@ def test_a_subscription_can_be_for_one_chore(h):
 def test_new_chore_reaches_everyone_but_whoever_added_it(h):
     for p in (h.tucker, h.mom, h.eric):
         h.svc.subscribe(p, p["id"], "new_chore", "email")
+    h.svc.update_person(h.eric, h.mom["id"], role="admin")       # adding chores is an admin's job
+    h.mom["role"] = "admin"
     h.svc.create_chore(h.mom, "Water plants", points=1, icon="🪴")
     assert [d["title"] for d in queued(h, h.tucker)] == ["New chore: 🪴 Water plants"]
     assert queued(h, h.eric) and not queued(h, h.mom)

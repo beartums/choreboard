@@ -187,3 +187,28 @@ describe("calendar ?date=", () => {
     await waitFor(() => expect(s.calls.some((c) => c.path.startsWith("/api/calendar?from=2027-01-18&to=2027-01-24"))).toBe(true));
   });
 });
+
+
+describe("what the server says I can do", () => {
+  it("offers only the allowed actions, with the reason for done", async () => {
+    s.entries[0].can = ["propose_swap"];
+    s.entries[0].cannot = { done: "opens at 4 PM" };
+    show();
+    const panel = await open(0);
+    expect(within(panel).queryByRole("button", { name: /did it/ })).toBeNull();
+    expect(within(panel).getByText("opens at 4 PM.")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Missed" })).toBeNull();
+    expect(within(panel).getByRole("button", { name: "Ask to swap…" })).toBeInTheDocument();
+  });
+
+  it("a pending swap shows as tentative with approve/decline for the person asked", async () => {
+    s.entries[6].pending_swap = { id: 9, from_person: 2, to_person: 1, with: s.entries[0].id, reason: "practice", side: "to" };
+    s.entries[6].can = ["approve_swap", "decline_swap"];
+    show();
+    expect(await screen.findAllByText("Swap pending")).not.toHaveLength(0);
+    const panel = await open(6);
+    expect(within(panel).getByText(/Nothing changes until Eric approves/)).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Approve swap" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Decline" })).toBeInTheDocument();
+  });
+});

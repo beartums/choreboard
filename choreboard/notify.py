@@ -51,11 +51,13 @@ EVENTS: dict[str, tuple[str, str]] = {
     "schedule": ("My schedule changed", "mine"),
     "points": ("My points were adjusted", "mine"),
     "new_chore": ("A new chore was added", "household"),
+    "swap_requested": ("Someone asked to swap a chore with me", "mine"),
+    "swap_answered": ("My swap request was answered", "mine"),
     # To admins. Always in their inbox -- a request nobody sees is no request.
     "discord_request": ("Someone asked to be added to the Discord server", "admins"),
 }
 # Events that land in these people's inbox even without a subscription.
-ALWAYS_INBOX = {"discord_request"}
+ALWAYS_INBOX = {"discord_request", "swap_requested"}   # a request nobody sees can't be answered
 
 # Retry delays after a failed attempt; after the last, the delivery fails.
 BACKOFF = [dt.timedelta(minutes=1), dt.timedelta(minutes=5), dt.timedelta(minutes=30), dt.timedelta(hours=2)]

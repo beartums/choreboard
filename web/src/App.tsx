@@ -6,6 +6,7 @@ import { CalendarPage } from "./pages/CalendarPage";
 import { ChoreDetail } from "./pages/ChoreDetail";
 import { ChoresPage } from "./pages/ChoresPage";
 import { useUnread } from "./components/useUnread";
+import { MeContext } from "./me";
 import { InboxPage } from "./pages/InboxPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PeoplePage } from "./pages/PeoplePage";
@@ -31,13 +32,14 @@ export function App() {
 function Shell({ me }: { me: Me }) {
   const { unread } = useUnread();
   return (
+    <MeContext.Provider value={me.person}>
     <div className="shell">
       <header className="top">
         <span className="brand">Choreboard</span>
         <nav aria-label="Main">
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/chores">Chores</NavLink>
-          <NavLink to="/people">People</NavLink>
+          {me.person?.role === "admin" && <NavLink to="/people">People</NavLink>}
           {me.person?.role === "admin" && <NavLink to="/settings">Settings</NavLink>}
           <NavLink to="/inbox" aria-label={unread ? `Inbox, ${unread} unread` : "Inbox"}>
             Inbox{unread > 0 && <span className="count" aria-hidden>{unread > 99 ? "99+" : unread}</span>}
@@ -60,5 +62,6 @@ function Shell({ me }: { me: Me }) {
         </Routes>
       </main>
     </div>
+    </MeContext.Provider>
   );
 }

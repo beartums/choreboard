@@ -35,6 +35,12 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
 
   const title = `${chore?.icon ? chore.icon + " " : ""}${chore?.title ?? "Chore"}`;
   const isOverride = entry.override_id != null;
+  // What this person may do, from the server. An old server sends no `can`:
+  // then offer everything and let the server say no.
+  const can = (a: string) => entry.can === undefined || entry.can.includes(a);
+  const why = (a: string) => entry.cannot?.[a];
+  const ps = entry.pending_swap;
+  const admin = can("failed");
 
   return (
     <div className="backdrop" onClick={onClose}>
@@ -52,32 +58,49 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
           starts later), but what was recorded is kept.</p>}
         {entry.reason && <p className="note">{entry.group_id ? "Swap" : "Change"}: {entry.reason}</p>}
 
+        {ps && (
+          <div className="note stack">
+            <span>⇄ <strong>Swap pending</strong>: {ps.side === "from"
+              ? `${name(ps.from_person)} offered this to ${name(ps.to_person)}` : `${name(ps.from_person)} asked ${name(ps.to_person)} to take this`}
+              {ps.reason && ` — ${ps.reason}`}. Nothing changes until {name(ps.to_person)} approves.</span>
+            <div className="actions">
+              {can("approve_swap") && <button onClick={() => run(() => api.answerSwap(ps.id, true))}>Approve swap</button>}
+              {can("decline_swap") && <button className="ghost" onClick={() => run(() => api.answerSwap(ps.id, false))}>Decline</button>}
+              {can("cancel_swap") && <button className="ghost" onClick={() => run(() => api.cancelSwap(ps.id))}>Cancel request</button>}
+            </div>
+          </div>
+        )}
+
         {entry.outcome ? (
           <>
             <p><strong>{describeOutcome(entry, name)}</strong>{entry.outcome.note && ` — ${entry.outcome.note}`}</p>
             {mode === "undo"
               ? <ReasonForm label="Why undo it?" submit="Undo" onSubmit={(note) => run(() => api.undo(entry.outcome!.id, note))} onCancel={() => setMode(null)} />
-              : <div className="actions"><button className="ghost" onClick={() => setMode("undo")}>Undo this</button></div>}
+              : can("undo") ? <div className="actions"><button className="ghost" onClick={() => setMode("undo")}>Undo this</button></div>
+              : why("undo") && <p className="muted">Undo: {why("undo")}.</p>}
           </>
         ) : entry.skipped ? (
           <>
             <p>Skipped for this date.</p>
-            <div className="actions"><button className="ghost" onClick={undoChange}>Don't skip it</button></div>
+            {can("unskip") && <div className="actions"><button className="ghost" onClick={undoChange}>Don't skip it</button></div>}
           </>
         ) : mode === null ? (
           <>
             <Section title="What happened">
-              <button onClick={recordDone}>{entry.person_id === me.id ? "I did it" : `${name(entry.person_id)} did it`}</button>
-              <button className="ghost" onClick={() => setMode("covered")}>Someone else did it</button>
-              <button className="ghost" onClick={() => setMode("failed")}>Missed</button>
-              <button className="ghost" onClick={() => setMode("failed_covered")}>Missed, someone covered</button>
-              <button className="ghost" onClick={recordNotNeeded}>Didn't need doing</button>
+              {can("done") ? <button onClick={recordDone}>{entry.person_id === me.id ? "I did it" : `${name(entry.person_id)} did it`}</button>
+                : why("done") && <span className="muted">{why("done")}.</span>}
+              {can("covered") && <button className="ghost" onClick={() => setMode("covered")}>Someone else did it</button>}
+              {can("failed") && <button className="ghost" onClick={() => setMode("failed")}>Missed</button>}
+              {can("failed_covered") && <button className="ghost" onClick={() => setMode("failed_covered")}>Missed, someone covered</button>}
+              {can("skipped") && <button className="ghost" onClick={recordNotNeeded}>Didn't need doing</button>}
             </Section>
-            <Section title="Plan a change, this date only">
-              {entry.rule_id != null && <button className="ghost" onClick={() => setMode("give")}>Give to someone</button>}
-              {entry.rule_id != null && <button className="ghost" onClick={() => setMode("swap")}>Swap with another day</button>}
-              {entry.rule_id != null && <button className="ghost" onClick={() => setMode("skip")}>Skip this date</button>}
-              {isOverride && <button className="ghost" onClick={undoChange}>
+            <Section title={admin ? "Plan a change, this date only" : "Swap"}>
+              {can("give") && entry.rule_id != null && <button className="ghost" onClick={() => setMode("give")}>Give to someone</button>}
+              {(can("swap") || can("propose_swap")) && entry.rule_id != null && !ps &&
+                <button className="ghost" onClick={() => setMode("swap")}>{can("swap") ? "Swap with another day" : "Ask to swap…"}</button>}
+              {!can("swap") && !can("propose_swap") && why("propose_swap") && <span className="muted">{why("propose_swap")}.</span>}
+              {can("skip") && entry.rule_id != null && <button className="ghost" onClick={() => setMode("skip")}>Skip this date</button>}
+              {can("undo_change") && isOverride && <button className="ghost" onClick={undoChange}>
                 {entry.group_id ? "Undo the swap" : entry.rule_id == null ? "Remove this extra one" : "Undo the change"}</button>}
             </Section>
           </>
@@ -90,8 +113,9 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
           <ReasonForm label="Why skip it?" submit="Skip this date" optional
             onSubmit={(reason) => run(() => api.skip(entry.id, reason))} onCancel={() => setMode(null)} />
         ) : mode === "swap" ? (
-          <SwapForm entry={entry} chores={chores} people={people}
-            onSubmit={(other, reason) => run(() => api.swap(entry.id, other, reason))} onCancel={() => setMode(null)} />
+          <SwapForm entry={entry} chores={chores} people={people} proposal={!can("swap")}
+            onSubmit={(other, reason) => run(() => can("swap") ? api.swap(entry.id, other, reason) : api.proposeSwap(entry.id, other, reason))}
+            onCancel={() => setMode(null)} />
         ) : null}
         <ErrorNote error={error} />
       </div>
@@ -187,8 +211,9 @@ function GiveForm({ others, onSubmit, onCancel }: { others: Person[]; onSubmit: 
 
 /** Pick the other side of a swap: any scheduled, unrecorded occurrence of
  *  someone else's, on any date -- tomorrow's or months away. */
-function SwapForm({ entry, chores, people, onSubmit, onCancel }: {
-  entry: Entry; chores: Chore[]; people: Person[]; onSubmit: (other: string, reason: string) => void; onCancel: () => void;
+function SwapForm({ entry, chores, people, proposal, onSubmit, onCancel }: {
+  entry: Entry; chores: Chore[]; people: Person[]; proposal?: boolean;
+  onSubmit: (other: string, reason: string) => void; onCancel: () => void;
 }) {
   const [weeks, setWeeks] = useState(8);
   const [candidates, setCandidates] = useState<Entry[] | null>(null);
@@ -199,7 +224,8 @@ function SwapForm({ entry, chores, people, onSubmit, onCancel }: {
 
   useEffect(() => {
     api.calendar(from, addDays(from, weeks * 7)).then((all) => setCandidates(all.filter((e) =>
-      e.id !== entry.id && e.person_id !== entry.person_id && e.rule_id != null && !e.skipped && !e.outcome)), setError);
+      e.id !== entry.id && e.person_id !== entry.person_id && e.rule_id != null && !e.skipped && !e.outcome
+      && !e.pending_swap)), setError);
   }, [from, weeks, entry.id, entry.person_id]);
 
   const label = (e: Entry) => {
@@ -219,7 +245,8 @@ function SwapForm({ entry, chores, people, onSubmit, onCancel }: {
       <label>Why<input value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
       <ErrorNote error={error} />
       <div className="actions">
-        <button type="submit" disabled={!pick || !reason.trim()}>Swap</button>
+        {proposal && <p className="muted">They'll be asked to approve it; nothing changes until they do.</p>}
+        <button type="submit" disabled={!pick || !reason.trim()}>{proposal ? "Ask them" : "Swap"}</button>
         <button type="button" className="ghost" onClick={onCancel}>Back</button>
       </div>
     </form>

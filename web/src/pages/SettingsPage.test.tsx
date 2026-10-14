@@ -46,7 +46,8 @@ describe("settings", () => {
     fakeApi({ me: { email: "t@x", via: "dev", scopes: [], needs_setup: false,
                     person: { id: 2, name: "Tucker", color: "", email: "t@x", role: "member", active: 1 } } });
     render(<MemoryRouter initialEntries={["/chores"]}><App /></MemoryRouter>);
-    await screen.findByRole("link", { name: "People" });
+    await screen.findByRole("link", { name: "Chores" });
     expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "People" })).toBeNull();
   });
 });

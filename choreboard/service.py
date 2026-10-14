@@ -22,6 +22,9 @@ from . import notify, policy, settings
 from .calendar import Occurrence, OccurrenceKey, Override, Pattern, Rule, calendar, plan_swap
 
 log = logging.getLogger("choreboard.service")
+# Choreboard itself acting: creating the first person, and someone joining on
+# their first sign-in. Never a caller -- nothing outside the service gets it.
+SYSTEM = {"id": None, "role": "admin", "active": 1, "name": "Choreboard"}
 SCOPES = ("read", "write", "act_as")
 TOKEN_PREFIX = "cb_"
 STATUSES = ("done", "skipped", "failed", "covered", "failed_covered")
@@ -98,8 +101,10 @@ def parse_key(s: str) -> OccurrenceKey:
 
 
 class Service:
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, clock: Any = None):
         self.db = conn
+        # Naive LOCAL time (the pod's TZ): chore windows are household times.
+        self.clock = clock or dt.datetime.now
 
     # --- plumbing -----------------------------------------------------------
 
@@ -113,8 +118,9 @@ class Service:
         return self.db.execute(sql, args).fetchall()
 
     def _check(self, actor: dict[str, Any] | None, action: str, **ctx: Any) -> None:
-        if not policy.allowed(actor, action, **ctx):
-            raise Forbidden(f"not allowed: {action}")
+        why = policy.reason(actor, action, **ctx)
+        if why is not None:
+            raise Forbidden(why)
 
     def _person(self, pid: int) -> dict[str, Any]:
         row = self._one("SELECT * FROM people WHERE id = ?", pid)
@@ -181,7 +187,7 @@ class Service:
             raise Conflict("already set up")
         if not email.strip():
             raise Invalid("the first person needs the email they sign in with")
-        return self.create_person({"id": None, "active": 1}, name, email=email, role="admin")
+        return self.create_person(SYSTEM, name, email=email, role="admin")
 
     def person_by_email(self, email: str, include_inactive: bool = False) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM people WHERE email = ?" + ("" if include_inactive else " AND active = 1"),
@@ -382,6 +388,13 @@ class Service:
                 return o
         raise NotFound(f"nothing is scheduled as {key_str(key)}")
 
+    def _times(self, key: OccurrenceKey) -> tuple[dt.time | None, dt.time | None]:
+        """An occurrence's daily window, if it's still on the calendar."""
+        for o in calendar(self.rules(), self._overrides(key[1], key[1]), key[1], key[1]):
+            if o.key == key:
+                return o.available, o.due
+        return None, None
+
     def _live_outcome(self, key: OccurrenceKey) -> dict[str, Any] | None:
         row = self._one("SELECT * FROM outcomes WHERE chore_id = ? AND date = ? AND source = ? AND source_id = ?"
                         " AND undone_at IS NULL", key[0], key[1].isoformat(), key[2], key[3])
@@ -457,14 +470,20 @@ class Service:
         return self.occurrence((chore_id, date, "add", oid))
 
     def swap(self, actor: dict[str, Any] | None, a: OccurrenceKey, b: OccurrenceKey, reason: str) -> str:
-        """Two people trade two occurrences, on those dates only. Returns the
-        swap's group id, which undoes it."""
-        self._check(actor, "overrides.write")
+        """Two people trade two occurrences, on those dates only, at once (an
+        admin's swap). Returns the swap's group id, which undoes it. Members
+        propose instead: propose_swap."""
+        self._check(actor, "swaps.direct")
         if not reason.strip():
             raise Invalid("a swap needs a reason")
+        return self._do_swap(actor, a, b, reason)
+
+    def _do_swap(self, actor: dict[str, Any] | None, a: OccurrenceKey, b: OccurrenceKey, reason: str,
+                 allow_request: int | None = None) -> str:
         occ_a, occ_b = self.occurrence(a), self.occurrence(b)
         self._unrecorded(a)
         self._unrecorded(b)
+        self._no_pending([a, b], ignore=allow_request)
         # Prefixed: remove_override_group tells a group from a numeric override
         # id by isdigit(), and ~1 in 280 bare 12-hex ids is all digits (a
         # property test found one: "162687106237").
@@ -520,6 +539,177 @@ class Service:
                    rows[0]["chore_id"], dt.date.fromisoformat(rows[0]["date"]))
         return len(rows)
 
+    # --- swap requests (a member proposes; the other side approves) ---------
+
+    @staticmethod
+    def _req_keys(r: sqlite3.Row | dict[str, Any]) -> tuple[OccurrenceKey, OccurrenceKey]:
+        return ((r["a_chore"], dt.date.fromisoformat(r["a_date"]), r["a_source"], r["a_source_id"]),
+                (r["b_chore"], dt.date.fromisoformat(r["b_date"]), r["b_source"], r["b_source_id"]))
+
+    def _expire_requests(self) -> None:
+        """A request whose earlier day has passed can no longer happen."""
+        today = self.clock().date().isoformat()
+        self.db.execute("UPDATE swap_requests SET status = 'expired', decided_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+                        " WHERE status = 'pending' AND MIN(a_date, b_date) < ?", (today,))
+
+    def pending_requests(self) -> list[dict[str, Any]]:
+        self._expire_requests()
+        return [dict(r) for r in self._all("SELECT * FROM swap_requests WHERE status = 'pending' ORDER BY id")]
+
+    def _no_pending(self, keys: list[OccurrenceKey], ignore: int | None) -> None:
+        for r in self.pending_requests():
+            if r["id"] == ignore:
+                continue
+            if set(self._req_keys(r)) & set(keys):
+                raise Conflict("one of these is already in a pending swap request; answer or cancel that first")
+
+    def request(self, rid: int) -> dict[str, Any]:
+        self._expire_requests()
+        row = self._one("SELECT * FROM swap_requests WHERE id = ?", rid)
+        if row is None:
+            raise NotFound(f"no swap request {rid}")
+        out = dict(row)
+        a, b = self._req_keys(row)
+        out["a"], out["b"] = key_str(a), key_str(b)
+        return out
+
+    def requests_for(self, person_id: int) -> list[dict[str, Any]]:
+        """Pending requests a person is part of, either side."""
+        return [self.request(r["id"]) for r in self.pending_requests()
+                if person_id in (r["from_person"], r["to_person"])]
+
+    def propose_swap(self, actor: dict[str, Any] | None, a: OccurrenceKey, b: OccurrenceKey, reason: str) -> dict[str, Any]:
+        """Offer my chore `a` for someone else's `b`. Tentative until the
+        other side approves; nothing on the calendar changes until then."""
+        if not reason.strip():
+            raise Invalid("a swap needs a reason")
+        occ_a, occ_b = self.occurrence(a), self.occurrence(b)
+        self._check(actor, "swaps.propose", from_person=occ_a.person_id)
+        if occ_a.person_id == occ_b.person_id:
+            raise Invalid("both chores are already the same person's")
+        if occ_a.rule_id is None or occ_b.rule_id is None:
+            raise Invalid("only scheduled chores can be swapped")
+        self._unrecorded(a)
+        self._unrecorded(b)
+        self._no_pending([a, b], ignore=None)
+        with self._tx():
+            cur = self.db.execute(
+                "INSERT INTO swap_requests (a_chore, a_date, a_source, a_source_id, b_chore, b_date, b_source,"
+                " b_source_id, from_person, to_person, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (*(a[0], a[1].isoformat(), a[2], a[3]), *(b[0], b[1].isoformat(), b[2], b[3]),
+                 occ_a.person_id, occ_b.person_id, reason.strip()))
+        rid = int(cur.lastrowid)
+        wa = self._what(occ_a.chore_id, occ_a.date, occ_a.available, occ_a.due)
+        wb = self._what(occ_b.chore_id, occ_b.date, occ_b.available, occ_b.due)
+        self._emit("swap_requested", actor, [occ_b.person_id], f"{self._name(occ_a.person_id)} wants to swap with you",
+                   f"{self._name(occ_a.person_id)} asks: you do their {wa}, they do your {wb}. "
+                   f"Reason: {reason.strip()}. Approve or decline it on the calendar.", occ_b.chore_id, occ_b.date)
+        return self.request(rid)
+
+    def answer_swap(self, actor: dict[str, Any] | None, rid: int, approve: bool, note: str = "") -> dict[str, Any]:
+        """The other side says yes (the swap happens now, if both chores are
+        still as they were) or no."""
+        r = self.request(rid)
+        if r["status"] != "pending":
+            raise Conflict(f"that request is already {r['status']}")
+        self._check(actor, "swaps.answer", to_person=r["to_person"])
+        a, b = self._req_keys(r)
+        group = None
+        if approve:
+            occ_a, occ_b = self.occurrence(a), self.occurrence(b)
+            if (occ_a.person_id, occ_b.person_id) != (r["from_person"], r["to_person"]):
+                with self._tx():
+                    self.db.execute("UPDATE swap_requests SET status = 'expired', decided_at ="
+                                    " strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?", (rid,))
+                raise Conflict("those chores have changed hands since the request; ask again")
+            group = self._do_swap({"id": r["from_person"], "role": "member", "active": 1}, a, b, r["reason"],
+                                  allow_request=rid)
+        with self._tx():
+            self.db.execute("UPDATE swap_requests SET status = ?, group_id = ?, answer = ?, decided_by = ?,"
+                            " decided_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+                            ("approved" if approve else "declined", group, note.strip(), (actor or {}).get("id"), rid))
+        by = self._name((actor or {}).get("id"))
+        what = self._what(a[0], a[1])
+        self._emit("swap_answered", actor, [r["from_person"]],
+                   f"Swap {'approved' if approve else 'declined'}: {what}",
+                   f"{by} {'approved' if approve else 'declined'} your swap for {what}."
+                   + (f" {note.strip()}" if note.strip() else ""), a[0], a[1])
+        return self.request(rid)
+
+    def cancel_swap(self, actor: dict[str, Any] | None, rid: int) -> dict[str, Any]:
+        r = self.request(rid)
+        if r["status"] != "pending":
+            raise Conflict(f"that request is already {r['status']}")
+        self._check(actor, "swaps.cancel", from_person=r["from_person"])
+        with self._tx():
+            self.db.execute("UPDATE swap_requests SET status = 'cancelled', decided_by = ?,"
+                            " decided_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+                            ((actor or {}).get("id"), rid))
+        return self.request(rid)
+
+    # --- what can this person do here? -------------------------------------
+
+    def capabilities(self, actor: dict[str, Any] | None, e: Entry,
+                     pending: dict[OccurrenceKey, dict[str, Any]]) -> tuple[list[str], dict[str, str]]:
+        """(actions allowed on this entry, why the common ones aren't). The
+        UI offers exactly these; the server enforces the same rules."""
+        o, out = e.occurrence, e.outcome
+        can: list[str] = []
+        why: dict[str, str] = {}
+        admin = policy.is_admin(actor)
+        now = self.clock()
+        req = pending.get(o.key)
+        if out:
+            r = policy.reason(actor, "outcomes.undo", status=out["status"], assignee=out["assignee_id"],
+                              assignee_name=self._name(out["assignee_id"]), done_by=out["done_by_id"], now=now,
+                              date=o.date, available=o.available, due=o.due)
+            (can.append("undo") if r is None else why.__setitem__("undo", r))
+            return can, why
+        if o.skipped:
+            if admin:
+                can.append("unskip")
+            return can, why
+        r = policy.reason(actor, "outcomes.write", status="done", assignee=o.person_id,
+                          assignee_name=self._name(o.person_id), now=now, date=o.date, available=o.available, due=o.due)
+        (can.append("done") if r is None else why.__setitem__("done", r))
+        if admin:
+            can += ["skipped", "failed", "covered", "failed_covered"]
+            if o.rule_id is not None:
+                can += ["give", "skip", "swap"]
+            if o.override_id is not None:
+                can.append("undo_change")
+        if req:
+            me = (actor or {}).get("id")
+            if req["to_person"] == me or admin:
+                can += ["approve_swap", "decline_swap"]
+            if req["from_person"] == me or admin:
+                can.append("cancel_swap")
+        elif o.rule_id is not None and not admin:
+            r = policy.reason(actor, "swaps.propose", from_person=o.person_id)
+            (can.append("propose_swap") if r is None else why.__setitem__("propose_swap", r))
+        return can, why
+
+    def calendar_json(self, actor: dict[str, Any] | None, start: dt.date, end: dt.date,
+                      person_id: int | None = None, include_skipped: bool = True) -> list[dict[str, Any]]:
+        """The calendar as the API returns it: each entry with `can` (what the
+        caller may do), `cannot` (why not, for the common actions) and
+        `pending_swap` (a tentative swap it's part of)."""
+        entries = self.calendar(start, end, person_id, include_skipped)
+        pending: dict[OccurrenceKey, dict[str, Any]] = {}
+        for r in self.pending_requests():
+            a, b = self._req_keys(r)
+            for mine, other in ((a, b), (b, a)):
+                pending[mine] = {"id": r["id"], "from_person": r["from_person"], "to_person": r["to_person"],
+                                 "with": key_str(other), "reason": r["reason"],
+                                 "side": "from" if mine == a else "to"}
+        out = []
+        for e, j in zip(entries, entries_json(entries)):
+            can, why = self.capabilities(actor, e, pending)
+            j["can"], j["cannot"] = can, why
+            j["pending_swap"] = pending.get(e.occurrence.key)
+            out.append(j)
+        return out
+
     # --- outcomes and the ledger --------------------------------------------
 
     def record(self, actor: dict[str, Any] | None, key: OccurrenceKey, status: str, *,
@@ -528,13 +718,15 @@ class Service:
         (DESIGN.md): done and covered earn the chore's points for whoever did
         it; failed deducts an EXPLICIT amount from the assignee; nothing is
         ever deducted unless `deduct` says so."""
-        self._check(actor, "outcomes.write", key=key)
         if status not in STATUSES:
             raise Invalid(f"status is one of {', '.join(STATUSES)}")
+        occ = self.occurrence(key)
+        self._check(actor, "outcomes.write", status=status, assignee=occ.person_id,
+                    assignee_name=self._name(occ.person_id), done_by=done_by, now=self.clock(),
+                    date=occ.date, available=occ.available, due=occ.due)
         note = note.strip()
         if status in NEEDS_NOTE and not note:
             raise Invalid(f"'{status}' needs a note saying why")
-        occ = self.occurrence(key)
         chore = self._chore(occ.chore_id)
         assignee = occ.person_id
         if status in NEEDS_DOER:
@@ -600,8 +792,12 @@ class Service:
         """Take back an outcome. It stays in the record, marked undone, and
         each of its points is reversed by a new ledger entry -- the ledger is
         never edited."""
-        self._check(actor, "outcomes.write", outcome_id=oid)
         out = self.outcome(oid)
+        okey = (out["chore_id"], dt.date.fromisoformat(out["date"]), out["source"], out["source_id"])
+        times = self._times(okey)
+        self._check(actor, "outcomes.undo", status=out["status"], assignee=out["assignee_id"],
+                    assignee_name=self._name(out["assignee_id"]), done_by=out["done_by_id"], now=self.clock(),
+                    date=okey[1], available=times[0], due=times[1])
         if out["undone_at"]:
             raise Conflict(f"outcome {oid} is already undone")
         if not note.strip():

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, describeRule, timeWindow, WEEKDAYS, type Chore, type Person, type Rule, type RuleInput } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 import { IconPicker } from "../components/IconPicker";
+import { useIsAdmin } from "../me";
 import { isRotationRule, overlaps, planRotation, rotationOf, rotations, type Rotation, type RotationGroup } from "../rotation";
 import { addDays } from "../dates";
 
@@ -28,6 +29,23 @@ export function ChoreDetail() {
   if (!chore) return <p className="muted">Loading…</p>;
   const others = rules.filter((r) => !isRotationRule(r));
   const groups = rotations(rules);
+  const admin = useIsAdmin();
+
+  if (!admin) {
+    // Members see the schedule; changing it is an admin's job.
+    const who = (id: number) => people.find((p) => p.id === id)?.name ?? `#${id}`;
+    return (
+      <section>
+        <Link to="/chores" className="back">← Chores</Link>
+        <h1>{chore.icon} {chore.title}</h1>
+        <p className="muted">{chore.points} point{chore.points === 1 ? "" : "s"}{chore.description && ` · ${chore.description}`}</p>
+        <ul className="list" aria-label="Schedule">
+          {rules.map((r) => <li key={r.id} className="row"><strong>{who(r.person_id)}</strong> <span className="muted">{describeRule(r)}</span></li>)}
+        </ul>
+        {rules.length === 0 && <p className="muted">Not scheduled.</p>}
+      </section>
+    );
+  }
 
   return (
     <section>

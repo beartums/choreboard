@@ -211,6 +211,26 @@ MIGRATIONS: list[str] = [
         updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
     );
     """,
+    # 7: swap requests -- a member's proposed swap, tentative until the other
+    # side approves. Occurrences are named by their key parts, like outcomes.
+    """
+    CREATE TABLE swap_requests (
+        id          INTEGER PRIMARY KEY,
+        a_chore     INTEGER NOT NULL, a_date TEXT NOT NULL, a_source TEXT NOT NULL, a_source_id INTEGER NOT NULL,
+        b_chore     INTEGER NOT NULL, b_date TEXT NOT NULL, b_source TEXT NOT NULL, b_source_id INTEGER NOT NULL,
+        from_person INTEGER NOT NULL REFERENCES people(id),
+        to_person   INTEGER NOT NULL REFERENCES people(id),
+        reason      TEXT NOT NULL DEFAULT '',
+        status      TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'declined', 'cancelled', 'expired')),
+        group_id    TEXT,
+        answer      TEXT NOT NULL DEFAULT '',
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+        decided_at  TEXT,
+        decided_by  INTEGER REFERENCES people(id)
+    );
+    CREATE INDEX swap_requests_status ON swap_requests(status);
+    """,
 ]
 
 

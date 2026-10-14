@@ -63,11 +63,11 @@ def test_nobody_anonymous_can_write(h):
 
 def test_done_earns_the_chores_points(h):
     k = key_on(h, MON)
-    out = h.svc.record(h.tucker, k, "done")
+    out = h.svc.record(h.eric, k, "done")
     assert (out["status"], out["assignee_id"], out["done_by_id"]) == ("done", h.tucker["id"], h.tucker["id"])
     assert h.svc.balance(h.tucker["id"]) == 3
     with pytest.raises(Conflict):
-        h.svc.record(h.tucker, k, "done")
+        h.svc.record(h.eric, k, "done")
 
 
 def test_failed_deducts_only_what_is_said_and_needs_a_reason(h):
@@ -117,7 +117,7 @@ def test_undo_keeps_the_record_and_reverses_the_points(h):
     with pytest.raises(Conflict):
         h.svc.undo(h.eric, out["id"], "again")
     # The occurrence is free again.
-    assert h.svc.record(h.tucker, k, "done")["status"] == "done"
+    assert h.svc.record(h.eric, k, "done")["status"] == "done"
 
 
 def test_swap_this_week_only_and_undo(h):
@@ -130,7 +130,7 @@ def test_swap_this_week_only_and_undo(h):
     assert who(h, MON + dt.timedelta(7), SUN + dt.timedelta(7)) == [(1, T), (2, C), (3, T), (4, M), (5, M), (6, C), (7, E)]
 
     # Tucker walks on Sunday: credited to Tucker, the swap's assignee.
-    out = h.svc.record(h.tucker, sun, "done")
+    out = h.svc.record(h.eric, sun, "done")
     assert out["assignee_id"] == T and h.svc.balance(T) == 3
     with pytest.raises(Conflict, match="outcome"):
         h.svc.remove_override_group(h.eric, group)
@@ -149,13 +149,13 @@ def test_reassign_skip_and_add(h):
         h.svc.record(h.eric, skipped.key, "done")
     extra = h.svc.add(h.eric, h.dog["id"], WED, M, "extra walk", due=dt.time(8))
     assert extra.key[2] == "add"
-    h.svc.record(h.mom, extra.key, "done")
+    h.svc.record(h.eric, extra.key, "done")
     assert h.svc.balance(M) == 3
 
 
 def test_editing_a_rule_keeps_history(h):
     k = key_on(h, MON)
-    h.svc.record(h.tucker, k, "done")
+    h.svc.record(h.eric, k, "done")
     rule = h.svc.rule(k[3])
     h.svc.update_rule(h.eric, rule.id, rule.chore_id, h.cass["id"], rule.pattern, due=rule.due)
     e = h.svc.calendar(MON, MON)[0]
@@ -166,7 +166,7 @@ def test_editing_a_rule_keeps_history(h):
 
 def test_deleting_a_rule_keeps_outcomes_and_points(h):
     k = key_on(h, MON)
-    h.svc.record(h.tucker, k, "done")
+    h.svc.record(h.eric, k, "done")
     h.svc.delete_rule(h.eric, k[3])
     assert h.svc.balance(h.tucker["id"]) == 3
     assert h.svc.outcome(1)["status"] == "done"
@@ -216,14 +216,14 @@ def test_the_undone_side_of_a_swap_can_be_swapped_again(h):
     # Tucker's half (Sunday) isn't done yet: he trades it on to Cass's
     # Saturday a month later.
     sat = key_on(h, D(2026, 11, 21))
-    second = h.svc.swap(h.tucker, sun, sat, "Tucker busy Sunday too")
+    second = h.svc.swap(h.eric, sun, sat, "Tucker busy Sunday too")
     assert h.svc.occurrence(sun).person_id == C
     assert h.svc.occurrence(sat).person_id == T
     # The first swap can't be undone now (Eric's half is recorded)...
     with pytest.raises(Conflict):
         h.svc.remove_override_group(h.eric, first)
     # ...but undoing the second puts Sunday back to the first swap's answer.
-    h.svc.remove_override_group(h.tucker, second)
+    h.svc.remove_override_group(h.eric, second)
     assert h.svc.occurrence(sun).person_id == T
     assert h.svc.occurrence(sat).person_id == C
     assert h.svc.occurrence(wed).person_id == E
@@ -233,18 +233,18 @@ def test_points_go_to_whoever_does_it(h):
     T, M = h.tucker["id"], h.mom["id"]
     sun, wed = key_on(h, SUN), key_on(h, WED)
     h.svc.swap(h.eric, sun, wed, "Eric away Sunday")
-    h.svc.record(h.tucker, sun, "done")                    # assigned to Tucker by the swap
+    h.svc.record(h.eric, sun, "done")                    # assigned to Tucker by the swap
     h.svc.record(h.eric, wed, "covered", done_by=M, note="Eric stuck at work")   # not assigned at all
     assert h.svc.balance(T) == 3 and h.svc.balance(M) == 3 and h.svc.balance(h.eric["id"]) == 0
 
 
 def test_editing_a_chore(h):
     k = key_on(h, MON)
-    h.svc.record(h.tucker, k, "done")                                   # earns 3
+    h.svc.record(h.eric, k, "done")                                   # earns 3
     c = h.svc.update_chore(h.eric, h.dog["id"], title="Walk Biscuit", points=5, icon="🦮", description="leash")
     assert (c["title"], c["points"], c["icon"], c["description"]) == ("Walk Biscuit", 5, "🦮", "leash")
     assert h.svc.balance(h.tucker["id"]) == 3, "points already earned don't change"
-    h.svc.record(h.tucker, key_on(h, WED), "done")
+    h.svc.record(h.eric, key_on(h, WED), "done")
     assert h.svc.balance(h.tucker["id"]) == 8, "new completions earn the new value"
     for bad in ({"points": -1}, {"title": "  "}, {"points": "5"}, {"owner": 2}):
         with pytest.raises(Invalid):
@@ -256,7 +256,7 @@ def test_editing_a_chore(h):
 
 
 def test_retiring_a_chore_hides_it_but_keeps_its_rules_and_history(h):
-    h.svc.record(h.tucker, key_on(h, MON), "done")
+    h.svc.record(h.eric, key_on(h, MON), "done")
     h.svc.update_chore(h.eric, h.dog["id"], active=False)
     assert h.svc.chores() == []
     assert h.svc.chore(h.dog["id"])["active"] == 0
@@ -337,7 +337,7 @@ def test_recorded_outcomes_stay_visible_when_the_schedule_moves_on(h):
     """Outcomes on days the rules no longer produce -- the rule now begins
     later, was edited, or deleted -- still show, flagged unscheduled."""
     k = key_on(h, MON)
-    h.svc.record(h.tucker, k, "done")
+    h.svc.record(h.eric, k, "done")
     rule = h.svc.rule(k[3])
     # The rule now begins after Monday...
     h.svc.update_rule(h.eric, rule.id, rule.chore_id, rule.person_id, rule.pattern, due=rule.due,
@@ -354,6 +354,6 @@ def test_recorded_outcomes_stay_visible_when_the_schedule_moves_on(h):
     assert h.svc.calendar(MON, MON) == []
     # Deleting a rule leaves its recorded days visible the same way.
     k2 = key_on(h, WED)
-    h.svc.record(h.tucker, k2, "done")
+    h.svc.record(h.eric, k2, "done")
     h.svc.delete_rule(h.eric, k2[3])
     assert h.svc.calendar(WED, WED)[0].occurrence.unscheduled

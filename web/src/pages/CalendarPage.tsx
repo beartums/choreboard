@@ -148,7 +148,8 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
   const p = ctx.person(e.person_id);
   const moved = e.scheduled_person_id != null;
   const cls = `occ${compact ? " chip" : ""}${e.skipped ? " skipped" : ""}${e.outcome ? ` st-${e.outcome.status}` : ""}`;
-  const state = e.skipped ? "Skipped" : e.outcome ? STATUS_LABEL[e.outcome.status] : e.group_id ? "Swapped" : "";
+  const state = e.skipped ? "Skipped" : e.outcome ? STATUS_LABEL[e.outcome.status] : e.pending_swap ? "Swap pending"
+    : e.group_id ? "Swapped" : "";
   if (compact) {
     return (
       <button className={cls} onClick={() => ctx.open(e)}
@@ -157,7 +158,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
         <span aria-hidden>{c?.icon || "•"}</span>
         <span className={`swatch c-${p?.color || "none"}`} aria-hidden />
         <span className="chipname">{p?.name}</span>
-        {state && <span className="chipstate" aria-hidden>{e.outcome ? "✓" : e.skipped ? "–" : "⇄"}</span>}
+        {state && <span className="chipstate" aria-hidden>{e.outcome ? "✓" : e.skipped ? "–" : e.pending_swap ? "⇄?" : "⇄"}</span>}
       </button>
     );
   }
@@ -174,7 +175,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
           {e.unscheduled && " · no longer scheduled"}
         </span>
       </span>
-      {state && <span className={`badge${e.group_id && !e.outcome && !e.skipped ? " swap" : ""}`}>{state}</span>}
+      {state && <span className={`badge${(e.group_id || e.pending_swap) && !e.outcome && !e.skipped ? " swap" : ""}${e.pending_swap ? " tentative" : ""}`}>{state}</span>}
     </button>
   );
 }

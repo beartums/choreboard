@@ -149,6 +149,6 @@ class Authenticator:
             return None                                   # before setup
         if not self.settings.auto_join:
             raise Forbidden(f"{email} isn't in this household; ask someone to add you")
-        joined = self.svc.create_person({"id": None, "active": 1}, name.strip() or email.split("@")[0],
-                                        email=email)
+        from .service import SYSTEM
+        joined = self.svc.create_person(SYSTEM, name.strip() or email.split("@")[0], email=email)
         return joined

@@ -162,3 +162,5 @@ details summary { cursor: pointer; margin-bottom: .5rem; }
 a.button { display: inline-block; text-decoration: none; border: 1px solid var(--accent); border-radius: 8px; padding: .45rem .9rem;
            background: var(--accent); color: var(--accent-fg); }
 a.button.ghost { background: transparent; color: var(--accent); }
+
+.badge.tentative { border: 1px dashed var(--accent); background: transparent; }

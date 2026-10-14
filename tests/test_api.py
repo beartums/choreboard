@@ -90,6 +90,7 @@ def test_calendar_swap_outcomes_and_points(client, home):
     assert day(client, E, "2026-11-01")[0]["person_id"] == ids["eric"], "the next Sunday is the schedule again"
 
     T = as_("tucker@example.com")
+    client.app.state.svc.clock = lambda: dt.datetime(2026, 10, 25, 12)    # inside Sunday's window
     out = client.post(f"/api/occurrences/{sun['id']}/outcome", json={"status": "done"}, headers=T)
     assert out.status_code == 201, out.text
     assert client.get(f"/api/people/{ids['tucker']}/points", headers=T).json()["balance"] == 3
@@ -149,6 +150,7 @@ def test_tokens_read_only_and_act_as(client, home):
     assert client.get("/api/me", headers={**R, "X-Choreboard-As": "tucker@example.com"}).status_code == 403
 
     N = {"Authorization": f"Bearer {nav['token']}", "X-Choreboard-As": "tucker@example.com"}
+    client.app.state.svc.clock = lambda: dt.datetime(2026, 10, 19, 12)    # Tucker's Monday
     assert client.get("/api/me", headers=N).json()["person"]["id"] == ids["tucker"]
     out = client.post(f"/api/occurrences/{mon['id']}/outcome", json={"status": "done"}, headers=N).json()
     assert out["recorded_by"] == ids["tucker"]
@@ -294,3 +296,21 @@ def test_inbox_over_http(client, home):
     assert r == {"changed": 1, "unread": 0}
     assert client.get("/api/me/inbox?unread=true", headers=T).json()["items"] == []
     assert client.get("/api/me/inbox", headers=E).json() == {"unread": 0, "items": []}, "Tucker's, not Eric's"
+
+
+def test_member_swap_request_over_http(client, home):
+    E, ids = home["E"], home["ids"]
+    T = as_("tucker@example.com")
+    wed, sun = day(client, T, "2026-10-21")[0], day(client, T, "2026-10-25")[0]
+    assert "propose_swap" in wed["can"] and "swap" not in wed["can"]
+    assert client.post("/api/swaps", json={"a": wed["id"], "b": sun["id"], "reason": "x"}, headers=T).status_code == 403
+    r = client.post("/api/swap-requests", json={"a": wed["id"], "b": sun["id"], "reason": "practice"}, headers=T)
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    assert day(client, E, "2026-10-25")[0]["pending_swap"]["id"] == rid
+    assert [x["id"] for x in client.get("/api/swap-requests", headers=E).json()] == [rid]
+    sun_e = day(client, E, "2026-10-25")[0]
+    assert {"approve_swap", "decline_swap"} <= set(sun_e["can"])
+    ok = client.post(f"/api/swap-requests/{rid}/approve", json={"reason": "sure"}, headers=E)
+    assert ok.status_code == 200 and ok.json()["status"] == "approved"
+    assert day(client, E, "2026-10-21")[0]["person_id"] == ids["eric"]

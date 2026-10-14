@@ -186,3 +186,21 @@ Out of the first version: rewards, streaks, photos, notifications.
   `discord_request` to every admin -- always into their inbox (no
   subscription needed), plus email/Discord if they subscribe. Once a day per
   person.
+
+## Permissions (v0.8.0)
+
+`policy.py` is the one place. **Members** mark *their own* chore done (and
+undo that) inside its window -- from its start time, or the start of its day,
+to one hour after its due time, or after the end of its day -- propose swaps of
+their own chores, answer swap requests made to them, and manage their own
+notification settings. **Admins** do everything at any time: every outcome for
+anyone, immediate swaps, chores, schedules, people, points, settings, tokens.
+`policy.reason` returns why not, in words; the calendar API returns, per entry
+and for the caller, `can` (allowed actions) and `cannot` (why not, for the
+common ones), so the UI offers exactly what the server permits.
+
+**Swap requests** (migration 7): a member's proposal is tentative --
+both days carry `pending_swap` and nothing moves -- until the other side
+approves (the swap runs, after re-checking both chores are still as they
+were) or declines; the asker can cancel; a request expires when its earlier
+day passes. `swap_requested` always reaches the other person's inbox.

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, describeRule, type Chore, type Person, type Rule } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 import { IconPicker } from "../components/IconPicker";
+import { useIsAdmin } from "../me";
 
 /** Every chore, with who does it when -- the household's default week. */
 export function ChoresPage() {
@@ -19,6 +20,7 @@ export function ChoresPage() {
   useEffect(load, [load]);
 
   const name = (id: number) => people.find((p) => p.id === id)?.name ?? `#${id}`;
+  const admin = useIsAdmin();
 
   return (
     <section>
@@ -45,8 +47,7 @@ export function ChoresPage() {
           })}
         </ul>
       )}
-      <h2>Add a chore</h2>
-      <NewChore />
+      {admin && <><h2>Add a chore</h2><NewChore /></>}
     </section>
   );
 }

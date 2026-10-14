@@ -328,10 +328,13 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.get("/api/calendar")
     def calendar(start: dt.date = Query(alias="from"), end: dt.date = Query(alias="to"),
                  person_id: int | None = None, include_skipped: bool = True,
-                 _: Caller = Depends(caller)) -> list[dict[str, Any]]:
+                 c: Caller = Depends(caller)) -> list[dict[str, Any]]:
         """Every occurrence from `from` to `to` (inclusive, at most a year),
-        overrides applied, with any outcome recorded against it."""
-        return list(entries_json(svc.calendar(start, end, person_id, include_skipped)))
+        overrides applied, with any outcome recorded against it. Each entry
+        says what the CALLER may do with it (`can`), why not for the common
+        actions (`cannot`), and any tentative swap it's part of
+        (`pending_swap`)."""
+        return svc.calendar_json(c.person, start, end, person_id, include_skipped)
 
     def _occ(o: Any) -> dict[str, Any]:
         return next(entries_json([Entry(o, None)]))
@@ -353,6 +356,28 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
         group = svc.swap(a, parse_key(body.a), parse_key(body.b), body.reason)
         return {"group_id": group, "a": _occ(svc.occurrence(parse_key(body.a))),
                 "b": _occ(svc.occurrence(parse_key(body.b)))}
+
+    @app.get("/api/swap-requests")
+    def swap_requests(a: dict = Depends(actor)) -> list[dict[str, Any]]:
+        """Pending swap requests I'm part of (either side)."""
+        return svc.requests_for(a["id"])
+
+    @app.post("/api/swap-requests", status_code=201)
+    def propose(body: SwapIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        """Offer my chore `a` for someone else's `b`; tentative until they approve."""
+        return svc.propose_swap(a, parse_key(body.a), parse_key(body.b), body.reason)
+
+    @app.post("/api/swap-requests/{rid}/approve")
+    def approve(rid: int, body: Reason, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.answer_swap(a, rid, True, body.reason)
+
+    @app.post("/api/swap-requests/{rid}/decline")
+    def decline(rid: int, body: Reason, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.answer_swap(a, rid, False, body.reason)
+
+    @app.post("/api/swap-requests/{rid}/cancel")
+    def cancel(rid: int, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.cancel_swap(a, rid)
 
     @app.delete("/api/overrides/{group_or_id}")
     def remove_override(group_or_id: str, a: dict = Depends(actor)) -> dict[str, int]:

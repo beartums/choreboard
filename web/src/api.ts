@@ -71,6 +71,12 @@ export interface Entry {
   /** Recorded, but no longer on the schedule (its rule changed or now begins later). */
   unscheduled?: boolean;
   outcome: Outcome | null;
+  /** What the person asking may do here (the server enforces the same rules). */
+  can?: string[];
+  /** Why not, for the common actions: {"done": "opens at 4 PM"}. */
+  cannot?: Record<string, string>;
+  /** A tentative swap this is part of, awaiting the other side. */
+  pending_swap?: { id: number; from_person: number; to_person: number; with: string; reason: string; side: "from" | "to" } | null;
 }
 
 export interface LedgerEntry {
@@ -221,6 +227,10 @@ export const api = {
     call<Entry>("POST", "/api/occurrences", b),
   swap: (a: string, b: string, reason: string) =>
     call<{ group_id: string; a: Entry; b: Entry }>("POST", "/api/swaps", { a, b, reason }),
+  proposeSwap: (a: string, b: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests", { a, b, reason }),
+  answerSwap: (id: number, approve: boolean, reason = "") =>
+    call<{ status: string }>("POST", `/api/swap-requests/${id}/${approve ? "approve" : "decline"}`, { reason }),
+  cancelSwap: (id: number) => call<{ status: string }>("POST", `/api/swap-requests/${id}/cancel`),
   removeOverride: (groupOrId: string | number) =>
     call<{ removed: number }>("DELETE", `/api/overrides/${groupOrId}`),
   record: (key: string, b: { status: Status; note?: string; done_by?: number; deduct?: number }) =>
