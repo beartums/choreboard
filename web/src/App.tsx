@@ -9,6 +9,7 @@ import { useUnread } from "./components/useUnread";
 import { InboxPage } from "./pages/InboxPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PeoplePage } from "./pages/PeoplePage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { SetupPage } from "./pages/SetupPage";
 
 export function App() {
@@ -36,6 +37,7 @@ function Shell({ me }: { me: Me }) {
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/chores">Chores</NavLink>
           <NavLink to="/people">People</NavLink>
+          {me.person?.role === "admin" && <NavLink to="/settings">Settings</NavLink>}
           <NavLink to="/inbox" aria-label={unread ? `Inbox, ${unread} unread` : "Inbox"}>
             Inbox{unread > 0 && <span className="count" aria-hidden>{unread > 99 ? "99+" : unread}</span>}
           </NavLink>
@@ -50,6 +52,7 @@ function Shell({ me }: { me: Me }) {
           <Route path="/chores/:id" element={<ChoreDetail />} />
           <Route path="/people" element={<PeoplePage />} />
           <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="*" element={<p>Nothing here. <NavLink to="/chores">Chores</NavLink></p>} />
         </Routes>

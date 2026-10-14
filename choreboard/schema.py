@@ -200,6 +200,17 @@ MIGRATIONS: list[str] = [
     ALTER TABLE subscriptions_new RENAME TO subscriptions;
     CREATE UNIQUE INDEX subscriptions_one ON subscriptions(person_id, event, channel, COALESCE(chore_id, 0));
     """,
+    # 6: server settings set from the app (settings.py). Secrets are stored
+    # encrypted with a key from the environment, never the key itself.
+    """
+    CREATE TABLE settings (
+        key         TEXT PRIMARY KEY,
+        value       TEXT NOT NULL,
+        secret      INTEGER NOT NULL DEFAULT 0,
+        updated_by  INTEGER REFERENCES people(id),
+        updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+    """,
 ]
 
 

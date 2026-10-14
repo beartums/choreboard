@@ -129,6 +129,26 @@ export interface Delivery {
   created_at: string;
 }
 
+export interface SettingField {
+  key: string;
+  label: string;
+  secret: boolean;
+  help: string;
+  source: "env" | "app" | "default";
+  env: string;
+  value?: string;          // non-secrets only
+  default?: string;
+  set?: boolean;           // secrets only: never the value
+  problem?: string;
+}
+
+export interface ServerSettings {
+  can_store_secrets: boolean;
+  key_env: string;
+  fields: SettingField[];
+  configured: string[];
+}
+
 export interface Me {
   email: string;
   person: Person | null;
@@ -209,6 +229,9 @@ export const api = {
     call<Subscription>("POST", "/api/me/subscriptions", { event, channel, chore_id }),
   unsubscribe: (id: number) => call<void>("DELETE", `/api/me/subscriptions/${id}`),
   deliveries: () => call<Delivery[]>("GET", "/api/me/deliveries?limit=30"),
+
+  settings: () => call<ServerSettings>("GET", "/api/settings"),
+  saveSettings: (values: Record<string, string | null>) => call<ServerSettings>("PUT", "/api/settings", { values }),
 
   rules: (choreId?: number) => call<Rule[]>("GET", choreId ? `/api/rules?chore_id=${choreId}` : "/api/rules"),
   createRule: (r: RuleInput) => call<Rule>("POST", "/api/rules", r),

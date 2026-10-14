@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from . import notify, policy
+from . import notify, policy, settings
 from .calendar import Occurrence, OccurrenceKey, Override, Pattern, Rule, calendar, plan_swap
 
 log = logging.getLogger("choreboard.service")
@@ -770,6 +770,22 @@ class Service:
                             " VALUES (?, ?, ?, ?, 'queued', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
                             (cur.lastrowid, person_id, channel, address or ""))
         return int(cur.lastrowid)
+
+    # --- server settings (admins) --------------------------------------------
+
+    def server_settings(self, actor: dict[str, Any] | None) -> dict[str, Any]:
+        self._check(actor, "settings.read")
+        return {"can_store_secrets": settings.can_store_secrets(), "key_env": settings.KEY_ENV,
+                "fields": settings.describe(self.db)}
+
+    def update_server_settings(self, actor: dict[str, Any] | None, changes: dict[str, str | None]) -> dict[str, Any]:
+        self._check(actor, "settings.write")
+        try:
+            with self._tx():
+                settings.put(self.db, changes, (actor or {}).get("id"))
+        except settings.SettingsError as e:
+            raise Invalid(str(e)) from None
+        return self.server_settings(actor)
 
     # --- API tokens -----------------------------------------------------------
 

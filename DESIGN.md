@@ -169,3 +169,10 @@ Out of the first version: rewards, streaks, photos, notifications.
   meaning "inbox only". Ignoring (no subscription) is the default and stores
   nothing for that person. API: `GET /api/me/inbox[?unread=true]`,
   `POST /api/me/inbox/read {ids?, read}`.
+- **Credentials set from the app** (v0.6.0, `settings.py`): an admin stores
+  SMTP and Discord credentials on the Settings page; secrets are encrypted
+  (Fernet, key = sha256 of `CHOREBOARD_SECRET_KEY` from the environment, never
+  the database), write-only through the API, and refused without a key.
+  Environment variables still win. Senders are rebuilt from settings on every
+  worker pass, so a change applies at once. **First real permission rule:**
+  `settings.read`/`settings.write` are admin-only.

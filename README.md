@@ -41,9 +41,14 @@ npm run build      # into choreboard/static, which the API serves at /
 | `CHOREBOARD_AUTO_JOIN` | `1` | a signed-in stranger joins as a member |
 | `CHOREBOARD_DEV_EMAIL` | — | **development only**: trust this identity with no sign-in |
 | `CHOREBOARD_PUBLIC_URL` | — | linked at the end of every notification |
-| `CHOREBOARD_SMTP_USER` / `_PASSWORD` | — | email notifications (Gmail: an app password) |
+| `CHOREBOARD_SECRET_KEY` | — | encrypts credentials an admin stores in **Settings** (≥ 32 chars); keep it with your other secrets |
+| `CHOREBOARD_SMTP_USER` / `_PASSWORD` | — | email notifications (Gmail: an app password); or set them in Settings |
 | `CHOREBOARD_SMTP_HOST` / `_PORT` / `_FROM` | `smtp.gmail.com` / `587` / `Choreboard <user>` | |
-| `CHOREBOARD_DISCORD_TOKEN` | — | Discord notifications: a bot token; the bot DMs people |
+| `CHOREBOARD_DISCORD_TOKEN` | — | Discord notifications: a bot token; or set it in Settings |
+
+Notification credentials can come from the environment or be set by an admin
+under **Settings**, where they're stored encrypted with `CHOREBOARD_SECRET_KEY`.
+The environment wins when both are set.
 
 API tokens: `POST /api/tokens` (signed in as a person) returns a `cb_…` token
 once. Send it as `Authorization: Bearer`. Scopes: `read`, `write`, and

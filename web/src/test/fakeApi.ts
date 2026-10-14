@@ -14,6 +14,7 @@ export interface FakeState {
   channels: Record<string, { address: string | null; enabled: boolean; default: boolean }>;
   configured: string[];
   inbox: InboxItem[];
+  settings: { can_store_secrets: boolean; key_env: string; fields: any[]; configured: string[] };
   calls: { method: string; path: string; body?: unknown }[];
 }
 
@@ -22,6 +23,12 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
   const s: FakeState = {
     me: { email: "eric@example.com", person: eric, via: "dev", scopes: ["read", "write"], needs_setup: false },
     people: [eric], chores: [], rules: [], entries: [], balances: {}, subs: [], configured: ["email"], inbox: [],
+    settings: { can_store_secrets: true, key_env: "CHOREBOARD_SECRET_KEY", configured: [], fields: [
+      { key: "smtp.host", label: "SMTP server", secret: false, help: "", source: "default", env: "CHOREBOARD_SMTP_HOST", value: "smtp.gmail.com", default: "smtp.gmail.com" },
+      { key: "smtp.user", label: "SMTP user", secret: false, help: "", source: "default", env: "CHOREBOARD_SMTP_USER", value: "", default: "" },
+      { key: "smtp.password", label: "SMTP password", secret: true, help: "app password", source: "default", env: "CHOREBOARD_SMTP_PASSWORD", set: false },
+      { key: "discord.token", label: "Discord bot token", secret: true, help: "", source: "env", env: "CHOREBOARD_DISCORD_TOKEN", set: true },
+    ] },
     channels: { email: { address: "eric@example.com", enabled: true, default: true },
                 discord: { address: null, enabled: false, default: true } },
     calls: [], ...init,
@@ -126,6 +133,16 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     }
     if (p === "/api/me/notifications") return json(200, { channels: s.channels, subscriptions: s.subs });
     if (p === "/api/me/deliveries") return json(200, []);
+    if (p === "/api/settings" && method === "GET") return json(200, s.settings);
+    if (p === "/api/settings" && method === "PUT") {
+      for (const [k, v] of Object.entries(body.values as Record<string, string | null>)) {
+        const f = s.settings.fields.find((x) => x.key === k)!;
+        if (f.secret) { f.set = !!v; f.source = v ? "app" : "default"; } else { f.value = v ?? f.default; f.source = v ? "app" : "default"; }
+      }
+      const has = (k: string) => s.settings.fields.find((x) => x.key === k);
+      s.settings.configured = has("smtp.user")!.value && has("smtp.password")!.set ? ["email"] : [];
+      return json(200, s.settings);
+    }
     if (p === "/api/me/inbox") {
       const only = url.searchParams.get("unread") === "true";
       return json(200, { unread: s.inbox.filter((n) => !n.read_at).length,

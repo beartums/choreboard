@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from contextlib import asynccontextmanager
 
-from . import notify, schema
+from . import notify, schema, settings as server_settings
 from .auth import Authenticator, Caller, PomeriumVerifier, Settings, Unauthenticated
 from .calendar import Pattern
 from .service import Entry, Error, Invalid, Service, entries_json, parse_key
@@ -145,21 +145,27 @@ class SubscriptionIn(BaseModel):
     chore_id: int | None = Field(None, description="one chore; omit for all of my chores")
 
 
-def senders_from_env() -> dict[str, notify.Sender]:
-    """The channels this server can send on, from CHOREBOARD_* env. A
-    channel with no credentials is simply absent (its deliveries fail with
-    "isn't set up on this server")."""
+def build_senders(db: Any) -> dict[str, notify.Sender]:
+    """The channels this server can send on, from settings (environment
+    first, then what an admin stored in the app). Rebuilt on every use, so a
+    change on the settings page applies on the next delivery."""
+    get = lambda k: server_settings.get(db, k)  # noqa: E731
     out: dict[str, notify.Sender] = {}
-    if os.environ.get("CHOREBOARD_SMTP_USER") and os.environ.get("CHOREBOARD_SMTP_PASSWORD"):
-        user = os.environ["CHOREBOARD_SMTP_USER"]
-        out["email"] = notify.SmtpSender(
-            host=os.environ.get("CHOREBOARD_SMTP_HOST", "smtp.gmail.com"),
-            port=int(os.environ.get("CHOREBOARD_SMTP_PORT", "587")), user=user,
-            password=os.environ["CHOREBOARD_SMTP_PASSWORD"],
-            sender=os.environ.get("CHOREBOARD_SMTP_FROM", f"Choreboard <{user}>"))
-    if os.environ.get("CHOREBOARD_DISCORD_TOKEN"):
-        out["discord"] = notify.DiscordSender(os.environ["CHOREBOARD_DISCORD_TOKEN"])
+    user, password = get("smtp.user"), get("smtp.password")
+    if user and password:
+        port = get("smtp.port")
+        out["email"] = notify.SmtpSender(host=get("smtp.host") or "smtp.gmail.com",
+                                         port=int(port) if port.isdigit() else 587, user=user, password=password,
+                                         sender=get("smtp.from") or f"Choreboard <{user}>")
+    if get("discord.token"):
+        out["discord"] = notify.DiscordSender(get("discord.token"))
     return out
+
+
+class SettingsIn(BaseModel):
+    """Keys to change; a value of null or "" clears one (back to the
+    environment or the default). Omitted keys are left alone."""
+    values: dict[str, str | None]
 
 
 def _rule_json(r: Any) -> dict[str, Any]:
@@ -180,7 +186,10 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     settings = settings or Settings.from_env()
     svc = Service(conn if conn is not None else schema.connect(settings.db_path))
     authn = Authenticator(settings, svc, verifier)
-    senders = senders if senders is not None else senders_from_env()
+    fixed_senders = senders                       # tests pass their own
+
+    def current_senders() -> dict[str, notify.Sender]:
+        return fixed_senders if fixed_senders is not None else build_senders(svc.db)
     link = os.environ.get("CHOREBOARD_PUBLIC_URL", "").rstrip("/")
     link = f"{link}/calendar" if link else ""
 
@@ -195,6 +204,7 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
         record each result (under the lock)."""
         async with lock:
             batch = notify.claim_due(svc.db)
+            senders = current_senders()
         for d in batch:
             err, retry = await asyncio.to_thread(notify.send_one, d, senders, link)
             async with lock:
@@ -393,7 +403,7 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
         can actually send on."""
         return {"events": [{"kind": k, "label": lbl, "scope": sc} for k, (lbl, sc) in notify.EVENTS.items()],
                 "channels": [{"channel": "app", "configured": True}]
-                + [{"channel": c, "configured": c in senders} for c in notify.CHANNELS]}
+                + [{"channel": c, "configured": c in current_senders()} for c in notify.CHANNELS]}
 
     @app.get("/api/me/notifications")
     def my_notifications(a: dict = Depends(actor)) -> dict[str, Any]:
@@ -428,6 +438,18 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.get("/api/me/deliveries")
     def my_deliveries(limit: int = Query(50, ge=1, le=200), a: dict = Depends(actor)) -> list[dict[str, Any]]:
         return svc.deliveries(a["id"], limit)
+
+    # --- server settings (admins) ---------------------------------------------
+
+    @app.get("/api/settings")
+    def get_settings(a: dict = Depends(actor)) -> dict[str, Any]:
+        """Notification credentials and where each comes from. Secrets say only
+        whether they're set."""
+        return {**svc.server_settings(a), "configured": sorted(current_senders())}
+
+    @app.put("/api/settings")
+    def put_settings(body: SettingsIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return {**svc.update_server_settings(a, body.values), "configured": sorted(current_senders())}
 
     # --- the web UI (web/, built into choreboard/static) -------------------------
     # Registered last, so every API route above wins. A browser route such as
