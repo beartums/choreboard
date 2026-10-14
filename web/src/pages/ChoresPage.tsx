@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, describeRule, type Chore, type Person, type Rule } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
+import { IconPicker } from "../components/IconPicker";
 
 /** Every chore, with who does it when -- the household's default week. */
 export function ChoresPage() {
@@ -72,7 +73,7 @@ function NewChore() {
     <form onSubmit={submit} className="card stack" aria-label="Add a chore">
       <div className="grid3">
         <label>Chore<input value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="Walk the dog" /></label>
-        <label>Icon<input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🐕" maxLength={4} /></label>
+        <IconPicker value={icon} onChange={setIcon} />
         <label>Points<input type="number" min={0} value={points} onChange={(e) => setPoints(Number(e.target.value))} /></label>
       </div>
       <ErrorNote error={error} />

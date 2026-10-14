@@ -21,6 +21,7 @@ function entry(dayOffset: number, person: number, extra: Partial<Entry> = {}): E
 
 let s: FakeState;
 beforeEach(() => {
+  localStorage.clear();
   s = fakeApi({
     people: PEOPLE,
     chores: [{ id: 7, title: "Walk the dog", description: "", icon: "🐕", points: 3, active: 1 }],
@@ -125,5 +126,42 @@ describe("calendar", () => {
     await open(0);
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+
+describe("calendar views", () => {
+  it("week view: seven columns, a chip per chore, the same panel on click", async () => {
+    show();
+    await userEvent.click(await screen.findByRole("button", { name: "Week" }));
+    const grid = await screen.findByRole("grid", { name: "Week" });
+    expect(within(grid).getAllByRole("columnheader")).toHaveLength(7);
+    expect(within(grid).getAllByRole("gridcell")).toHaveLength(7);
+    const chip = within(grid).getAllByRole("button", { name: /Walk the dog, Eric/ })[0];
+    await userEvent.click(chip);
+    expect(await screen.findByRole("dialog", { name: /Walk the dog/ })).toBeInTheDocument();
+  });
+
+  it("month view: whole weeks covering the month, remembered next time", async () => {
+    const { unmount } = show();
+    await userEvent.click(await screen.findByRole("button", { name: "Month" }));
+    const grid = await screen.findByRole("grid", { name: "Month" });
+    const cells = within(grid).getAllByRole("gridcell");
+    expect(cells.length % 7).toBe(0);
+    expect(cells.length).toBeGreaterThanOrEqual(28);
+    await waitFor(() => expect(s.calls.some((c) => c.path.startsWith("/api/calendar") && c.path.includes("from=")
+      && !c.path.includes(`from=${MON}&to=${addDays(MON, 6)}`))).toBe(true));
+    unmount();
+    show();
+    expect(await screen.findByRole("grid", { name: "Month" })).toBeInTheDocument();
+  });
+
+  it("month view steps a month at a time", async () => {
+    show();
+    await userEvent.click(await screen.findByRole("button", { name: "Month" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next month" }));
+    const next = new Date(); next.setDate(1); next.setMonth(next.getMonth() + 1);
+    const label = next.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    expect(await screen.findByRole("heading", { name: new RegExp(label) })).toBeInTheDocument();
   });
 });

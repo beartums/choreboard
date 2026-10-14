@@ -33,3 +33,24 @@ export function dayLabel(s: string, now = today()): string {
   if (s === addDays(now, -1)) return "Yesterday";
   return parse(s).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
+
+export function monthStart(s: string): string {
+  return s.slice(0, 8) + "01";
+}
+
+export function addMonths(s: string, n: number): string {
+  const d = parse(monthStart(s));
+  d.setMonth(d.getMonth() + n);
+  return iso(d);
+}
+
+/** The Monday-to-Sunday grid that covers a month: [first, last]. */
+export function monthGrid(s: string): [string, string] {
+  const first = monthStart(s);
+  const next = addMonths(first, 1);
+  return [weekStart(first), addDays(weekStart(addDays(next, -1)), 6)];
+}
+
+export function monthLabel(s: string): string {
+  return parse(s).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}

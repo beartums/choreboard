@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Rule } from "./api";
-import { isRotationRule, planRotation, rotationOf } from "./rotation";
+import { isRotationRule, overlaps, planRotation, rotationOf, rotations } from "./rotation";
 
 const rule = (id: number, person_id: number, weekdays: Rule["weekdays"], extra: Partial<Rule> = {}): Rule => ({
   id, chore_id: 1, person_id, weekdays, every_days: null, anchor: null, on: null, due: "18:00", start: null, end: null, ...extra,
@@ -13,9 +13,27 @@ describe("rotation", () => {
     expect(rotationOf(DOG)).toEqual({ 1: 2, 3: 2, 2: 3, 6: 3, 4: 4, 5: 4, 7: 1 });
   });
 
-  it("only owns plain weekday rules", () => {
-    expect(isRotationRule(rule(9, 1, [1], { end: "2026-12-01" }))).toBe(false);
+  it("owns weekday rules, with or without dates", () => {
+    expect(isRotationRule(rule(9, 1, [1], { end: "2026-12-01" }))).toBe(true);
     expect(isRotationRule(rule(9, 1, null, { every_days: 2, anchor: "2026-10-01" }))).toBe(false);
+    expect(isRotationRule(rule(9, 1, null, { on: "2026-10-01" }))).toBe(false);
+  });
+
+  it("groups rotations by their date range, earliest first", () => {
+    const summer = [rule(10, 2, [1, 2, 3, 4, 5], { start: "2027-06-15", end: "2027-08-31" })];
+    const groups = rotations([...summer, ...DOG]);
+    expect(groups.map((g) => [g.start, g.end, g.rules.length])).toEqual([[null, null, 4], ["2027-06-15", "2027-08-31", 1]]);
+  });
+
+  it("a start date on a rotation updates all its rules", () => {
+    const plan = planRotation(1, DOG, rotationOf(DOG), "18:00", "2026-11-01", null);
+    expect(plan.update).toHaveLength(4);
+    expect(plan.update.every((u) => u.rule.start === "2026-11-01" && u.rule.end === null)).toBe(true);
+  });
+
+  it("a new rotation starting later is all creates", () => {
+    const plan = planRotation(1, [], { 1: 3, 2: 3 }, null, "2026-12-01", null);
+    expect(plan.create).toEqual([expect.objectContaining({ person_id: 3, weekdays: [1, 2], start: "2026-12-01" })]);
   });
 
   it("does nothing when nothing changed", () => {
@@ -39,5 +57,13 @@ describe("rotation", () => {
 
   it("a due-time change updates every rule", () => {
     expect(planRotation(1, DOG, rotationOf(DOG), "19:00").update).toHaveLength(4);
+  });
+});
+
+describe("overlaps", () => {
+  it("treats missing dates as open-ended", () => {
+    expect(overlaps({ start: null, end: null }, { start: "2027-06-15", end: "2027-08-31" })).toBe(true);
+    expect(overlaps({ start: null, end: "2027-06-14" }, { start: "2027-06-15", end: null })).toBe(false);
+    expect(overlaps({ start: "2027-06-15", end: "2027-06-15" }, { start: "2027-06-15", end: null })).toBe(true);
   });
 });

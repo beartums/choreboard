@@ -13,7 +13,7 @@ describe("first visit", () => {
     renderAt("/");
     await userEvent.type(await screen.findByLabelText("Your name"), "Eric");
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
-    expect(await screen.findByRole("heading", { name: "Calendar" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^Calendar/ })).toBeInTheDocument();
     expect(s.calls).toContainEqual({ method: "POST", path: "/api/setup", body: { name: "Eric" } });
   });
 });
@@ -76,5 +76,46 @@ describe("chores", () => {
     await waitFor(() => expect(s.rules).toHaveLength(1));
     expect(s.rules[0]).toMatchObject({ every_days: 3, weekdays: null, person_id: 1 });
     expect(await screen.findByText(/Every 3 days from/)).toBeInTheDocument();
+  });
+});
+
+describe("chore icon", () => {
+  it("picks from the list, and a compound emoji survives saving whole", async () => {
+    const s = fakeApi({ chores: [{ id: 7, title: "Walk the dog", description: "", icon: "", points: 3, active: 1 }] });
+    renderAt("/chores/7");
+    const form = await screen.findByRole("form", { name: "Chore details" });
+    await userEvent.click(within(form).getByRole("button", { name: "Choose an icon" }));
+    await userEvent.click(within(form).getByRole("option", { name: "dog walk" }));
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(s.chores[0].icon).toBe("🦮"));
+
+    const typed = within(form).getByLabelText("Icon (type any emoji)");
+    await userEvent.clear(typed);
+    await userEvent.type(typed, "🐕‍🦺");                 // dog + ZWJ + vest: 5 UTF-16 units
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(s.chores[0].icon).toBe("🐕‍🦺"));
+  });
+});
+
+describe("rotation dates", () => {
+  it("a rotation can start later, and another can be added", async () => {
+    const people = [1, 2].map((id, i) => ({ id, name: ["Eric", "Tucker"][i], color: "", email: null, role: "member" as const, active: 1 }));
+    const s = fakeApi({ people, chores: [{ id: 7, title: "Bins", description: "", icon: "🗑️", points: 1, active: 1 }] });
+    renderAt("/chores/7");
+    const grid = await screen.findByLabelText("Weekly rotation");
+    await userEvent.selectOptions(within(grid).getByLabelText("Mon"), "Tucker");
+    await userEvent.type(within(grid).getByLabelText("Starts"), "2026-11-02");
+    await userEvent.click(within(grid).getByRole("button", { name: "Save rotation" }));
+    await waitFor(() => expect(s.rules).toEqual([expect.objectContaining({ person_id: 2, weekdays: [1], start: "2026-11-02" })]));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add another rotation" }));
+    const fresh = await screen.findByLabelText("New rotation");
+    await userEvent.selectOptions(within(fresh).getByLabelText("Fri"), "Eric");
+    await userEvent.type(within(fresh).getByLabelText("Starts"), "2027-06-15");
+    await userEvent.type(within(fresh).getByLabelText("Ends"), "2027-08-31");
+    await userEvent.click(within(fresh).getByRole("button", { name: "Save rotation" }));
+    await waitFor(() => expect(s.rules).toHaveLength(2));
+    expect(s.rules[1]).toMatchObject({ person_id: 1, weekdays: [5], start: "2027-06-15", end: "2027-08-31" });
+    expect(s.rules[0]).toMatchObject({ start: "2026-11-02" }), "the first rotation is untouched";
   });
 });
