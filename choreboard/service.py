@@ -370,7 +370,10 @@ class Service:
         occ_a, occ_b = self.occurrence(a), self.occurrence(b)
         self._unrecorded(a)
         self._unrecorded(b)
-        group = uuid.uuid4().hex[:12]
+        # Prefixed: remove_override_group tells a group from a numeric override
+        # id by isdigit(), and ~1 in 280 bare 12-hex ids is all digits (a
+        # property test found one: "162687106237").
+        group = "sw_" + uuid.uuid4().hex[:12]
         try:
             plan = plan_swap(occ_a, occ_b, group, reason.strip())
         except ValueError as e:
@@ -384,7 +387,7 @@ class Service:
         """Undo a swap (by group id) or a single override (by numeric id), as
         long as nothing has been recorded against what it changed."""
         self._check(actor, "overrides.write")
-        if group_or_id.isdigit():
+        if group_or_id.isdigit():                        # an override id; groups are "sw_..."
             rows = self._all("SELECT * FROM overrides WHERE id = ?", int(group_or_id))
         else:
             rows = self._all("SELECT * FROM overrides WHERE group_id = ?", group_or_id)

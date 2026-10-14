@@ -176,3 +176,15 @@ def test_dev_identity_cannot_sit_beside_pomerium():
         create_app(Settings(db_path=":memory:", audience=AUD, dev_email="x@example.com"),
                    verifier=PomeriumVerifier("", AUD, keys=lambda _t: KEY.public_key()),
                    conn=schema.connect(":memory:"))
+
+
+def test_patch_chore_and_person(client, home):
+    E, ids, dog = home["E"], home["ids"], home["dog"]
+    r = client.patch(f"/api/chores/{dog['id']}", json={"points": 4, "title": "Walk Biscuit"}, headers=E)
+    assert r.status_code == 200 and (r.json()["points"], r.json()["title"]) == (4, "Walk Biscuit")
+    assert client.patch(f"/api/chores/{dog['id']}", json={"points": -2}, headers=E).status_code == 422
+    assert client.patch("/api/chores/999", json={"title": "x"}, headers=E).status_code == 404
+    p = client.patch(f"/api/people/{ids['mom']}", json={"name": "Mum", "color": "rose"}, headers=E)
+    assert p.status_code == 200 and p.json()["name"] == "Mum"
+    assert client.patch(f"/api/people/{ids['mom']}", json={"email": "eric@example.com"}, headers=E).status_code == 409
+    assert client.patch(f"/api/people/{ids['mom']}", json={"role": "owner"}, headers=E).status_code == 422

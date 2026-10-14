@@ -233,3 +233,63 @@ def test_points_go_to_whoever_does_it(h):
     h.svc.record(h.tucker, sun, "done")                    # assigned to Tucker by the swap
     h.svc.record(h.eric, wed, "covered", done_by=M, note="Eric stuck at work")   # not assigned at all
     assert h.svc.balance(T) == 3 and h.svc.balance(M) == 3 and h.svc.balance(h.eric["id"]) == 0
+
+
+def test_editing_a_chore(h):
+    k = key_on(h, MON)
+    h.svc.record(h.tucker, k, "done")                                   # earns 3
+    c = h.svc.update_chore(h.eric, h.dog["id"], title="Walk Biscuit", points=5, icon="🦮", description="leash")
+    assert (c["title"], c["points"], c["icon"], c["description"]) == ("Walk Biscuit", 5, "🦮", "leash")
+    assert h.svc.balance(h.tucker["id"]) == 3, "points already earned don't change"
+    h.svc.record(h.tucker, key_on(h, WED), "done")
+    assert h.svc.balance(h.tucker["id"]) == 8, "new completions earn the new value"
+    for bad in ({"points": -1}, {"title": "  "}, {"points": "5"}, {"owner": 2}):
+        with pytest.raises(Invalid):
+            h.svc.update_chore(h.eric, h.dog["id"], **bad)
+    with pytest.raises(NotFound):
+        h.svc.update_chore(h.eric, 999, title="x")
+    with pytest.raises(Forbidden):
+        h.svc.update_chore(None, h.dog["id"], title="x")
+
+
+def test_retiring_a_chore_hides_it_but_keeps_its_rules_and_history(h):
+    h.svc.record(h.tucker, key_on(h, MON), "done")
+    h.svc.update_chore(h.eric, h.dog["id"], active=False)
+    assert h.svc.chores() == []
+    assert h.svc.chore(h.dog["id"])["active"] == 0
+    assert h.svc.balance(h.tucker["id"]) == 3
+
+
+def test_editing_a_person(h):
+    p = h.svc.update_person(h.eric, h.cass["id"], name="Cass", color="mint", email="CASS2@Example.com", role="admin")
+    assert (p["name"], p["color"], p["email"], p["role"]) == ("Cass", "mint", "cass2@example.com", "admin")
+    assert h.svc.person_by_email("cass2@example.com")["id"] == h.cass["id"]
+    assert h.svc.person_by_email("cass@example.com") is None
+    with pytest.raises(Conflict):
+        h.svc.update_person(h.eric, h.cass["id"], email="mom@example.com")
+    for bad in ({"role": "owner"}, {"name": ""}, {"id": 9}):
+        with pytest.raises(Invalid):
+            h.svc.update_person(h.eric, h.cass["id"], **bad)
+    with pytest.raises(NotFound):
+        h.svc.update_person(h.eric, 999, name="x")
+    # Deactivating keeps their history but takes them off the list.
+    h.svc.update_person(h.eric, h.cass["id"], active=False)
+    assert h.cass["id"] not in [x["id"] for x in h.svc.people()]
+    assert h.svc.person_by_email("cass2@example.com") is None
+    assert h.svc.person_by_email("cass2@example.com", include_inactive=True)["active"] == 0
+
+
+def test_swap_group_ids_never_look_like_override_ids(h, monkeypatch):
+    """Regression: a bare hex group id can be all digits, which the undo
+    route reads as a single override's id."""
+    import uuid as _uuid
+    monkeypatch.setattr(_uuid, "uuid4", lambda: _uuid.UUID("16268710-6237-4000-8000-000000000000"))
+    group = h.svc.swap(h.eric, key_on(h, SUN), key_on(h, WED), "x")
+    assert not group.isdigit()
+    assert h.svc.remove_override_group(h.eric, group) == 2
+
+
+def test_undo_a_single_override_by_id(h):
+    occ = h.svc.reassign(h.eric, key_on(h, MON), h.mom["id"], "sleepover")
+    assert h.svc.remove_override_group(h.eric, str(occ.override_id)) == 1
+    assert h.svc.occurrence(occ.key).person_id == h.tucker["id"]
