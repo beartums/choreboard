@@ -1,0 +1,13 @@
+[project]
+name = "choreboard"
+version = "0.1.0"
+description = "Household chores as a calendar: schedule rules give the defaults, date overrides win."
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
