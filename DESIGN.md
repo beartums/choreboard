@@ -142,3 +142,10 @@ Out of the first version: rewards, streaks, photos, notifications.
   range; a chore can have several (a summer rotation, a new one from next
   month). Overlapping rotations both apply on the shared days, so the UI warns
   and offers to end the earlier one the day before the later one starts.
+- **A rule begins the day it was made** (v0.4.2) unless it has an explicit
+  first day -- earlier or later. A schedule entered today doesn't reach back
+  and fill in the past. The creation day is the stored UTC timestamp read in
+  the pod's local time (TZ), and editing a rule keeps it. Tests backdate their
+  fixtures so the fixed dates they use stay covered whatever day they run.
+- **Sign-in tolerates 60 s of clock skew** (v0.4.1) between Pomerium's node and
+  this pod's, and logs every rejected assertion with its reason.

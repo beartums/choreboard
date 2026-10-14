@@ -49,6 +49,8 @@ def home(client):
         r = client.post("/api/rules", json={"chore_id": dog["id"], "person_id": ids[who], "weekdays": days,
                                             "due": "18:00"}, headers=E)
         assert r.status_code == 201, r.text
+    # Rules begin the day they're made; backdate so the fixed dates below are covered.
+    client.app.state.svc.db.execute("UPDATE rules SET created_at = '2026-01-01T12:00:00Z'")
     return {"E": E, "ids": ids, "dog": dog}
 
 

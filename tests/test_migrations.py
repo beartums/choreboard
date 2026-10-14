@@ -16,7 +16,8 @@ def test_upgrading_from_version_2_keeps_everything(tmp_path):
         conn.execute(f"PRAGMA user_version = {n}")
     conn.execute("INSERT INTO people (name, email, role) VALUES ('Eric', 'e@x', 'admin')")
     conn.execute("INSERT INTO chores (title, points) VALUES ('Walk the dog', 3)")
-    conn.execute("INSERT INTO rules (chore_id, person_id, weekdays, due) VALUES (1, 1, '1,3', '18:00')")
+    conn.execute("INSERT INTO rules (chore_id, person_id, weekdays, due, created_at)"
+                 " VALUES (1, 1, '1,3', '18:00', '2026-01-01T12:00:00Z')")
     conn.execute("INSERT INTO outcomes (chore_id, date, source, source_id, status, assignee_id, done_by_id)"
                  " VALUES (1, '2026-10-19', 'rule', 1, 'done', 1, 1)")
     conn.execute("INSERT INTO ledger (person_id, delta, kind, note, outcome_id) VALUES (1, 3, 'earned', 'x', 1)")

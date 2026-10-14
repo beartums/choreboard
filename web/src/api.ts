@@ -33,11 +33,13 @@ export interface Rule {
   on: string | null;
   available: string | null;        // daily window start, "HH:MM"
   due: string | null;              // daily window end
-  start: string | null;            // first day
+  start: string | null;            // first day, if set
   end: string | null;              // last day
+  /** When it actually begins: `start`, or the day it was set up. Read-only. */
+  first_day?: string | null;
 }
 
-export type RuleInput = Omit<Rule, "id">;
+export type RuleInput = Omit<Rule, "id" | "first_day">;
 
 export type Status = "done" | "skipped" | "failed" | "covered" | "failed_covered";
 

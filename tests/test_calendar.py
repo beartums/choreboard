@@ -108,3 +108,14 @@ def test_bad_overrides_and_swaps():
         plan_swap(mon, wed, "g", "")                              # both Tucker's
     with pytest.raises(ValueError):
         calendar(RULES, [], SUN, MON)
+
+
+def test_a_rule_starts_the_day_it_was_made_unless_told_otherwise():
+    made = D(2026, 10, 22)                                  # a Thursday
+    r = Rule(1, DOG, MOM, Pattern(weekdays=frozenset({1, 3, 4, 5})), created=made)
+    assert [o.date for o in calendar([r], [], MON, SUN)] == [D(2026, 10, 22), D(2026, 10, 23)]
+    # An earlier start reaches back; a later one waits.
+    earlier = Rule(1, DOG, MOM, Pattern(weekdays=frozenset({1, 3, 4, 5})), created=made, start=MON)
+    assert [o.date for o in calendar([earlier], [], MON, SUN)] == [MON, WED, D(2026, 10, 22), D(2026, 10, 23)]
+    later = Rule(1, DOG, MOM, Pattern(weekdays=frozenset({1, 3, 4, 5})), created=made, start=D(2026, 10, 23))
+    assert [o.date for o in calendar([later], [], MON, SUN)] == [D(2026, 10, 23)]

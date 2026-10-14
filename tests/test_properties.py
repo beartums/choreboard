@@ -165,6 +165,7 @@ def _household(rules):
     for r in rules:   # ids line up: people 1-4, chores 1-3 (CHORES map to 1..3)
         svc.create_rule(admin, CHORES.index(r.chore_id) + 1, r.person_id, r.pattern, due=r.due,
                         start=r.start, end=r.end)
+    svc.db.execute("UPDATE rules SET created_at = '2025-12-01T12:00:00Z'")   # before WINDOW
     return svc, admin
 
 

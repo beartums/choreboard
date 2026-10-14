@@ -134,7 +134,9 @@ def _rule_json(r: Any) -> dict[str, Any]:
             "anchor": p.anchor, "on": p.on,
             "available": r.available.strftime("%H:%M") if r.available else None,
             "due": r.due.strftime("%H:%M") if r.due else None,
-            "start": r.start, "end": r.end}
+            "start": r.start, "end": r.end,
+            # The first day the rule applies: `start`, or the day it was made.
+            "first_day": r.first_day}
 
 
 def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | None = None,

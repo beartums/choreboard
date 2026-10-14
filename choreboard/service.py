@@ -64,6 +64,16 @@ def _t(s: str | None) -> dt.time | None:
     return dt.time.fromisoformat(s) if s else None
 
 
+def _local_day(utc_stamp: str | None) -> dt.date | None:
+    """A stored UTC timestamp ('2026-10-14T23:30:00Z') as the household's
+    calendar day -- the pod's local time (TZ is set in its Deployment), so a
+    rule made at 7:30 PM Eastern starts that day, not tomorrow."""
+    if not utc_stamp:
+        return None
+    t = dt.datetime.fromisoformat(utc_stamp.replace("Z", "+00:00"))
+    return t.astimezone().date()
+
+
 def _iso(x: dt.date | dt.time | None) -> str | None:
     if x is None:
         return None
@@ -221,7 +231,7 @@ class Service:
                     pattern=Pattern(weekdays=wd, every_days=row["every_days"], anchor=_d(row["anchor"]),
                                     on=_d(row["on_date"])),
                     due=_t(row["due"]), start=_d(row["start_date"]), end=_d(row["end_date"]),
-                    available=_t(row["available"]))
+                    available=_t(row["available"]), created=_local_day(row["created_at"]))
 
     def rule(self, rid: int) -> Rule:
         row = self._one("SELECT * FROM rules WHERE id = ?", rid)

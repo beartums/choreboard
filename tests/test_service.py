@@ -25,6 +25,9 @@ def h():
     evening = dt.time(18)
     for person, days in ((tucker, {1, 3}), (cass, {2, 6}), (mom, {4, 5}), (eric, {7})):
         svc.create_rule(eric, dog["id"], person["id"], Pattern(weekdays=frozenset(days)), due=evening)
+    # Rules begin the day they're made; these tests use fixed dates, so make
+    # the rules old enough to cover them whatever day the suite runs.
+    svc.db.execute("UPDATE rules SET created_at = '2026-01-01T12:00:00Z'")
 
     class H:
         pass
@@ -312,3 +315,19 @@ def test_a_daily_time_window(h):
     assert (extra.available, extra.due) == (dt.time(7), dt.time(9))
     with pytest.raises(Invalid):
         h.svc.add(h.eric, h.dog["id"], WED, h.mom["id"], "x", due=dt.time(7), available=dt.time(9))
+
+
+def test_new_rules_do_not_fill_in_the_past(h):
+    """A rule made today has nothing before today unless it says it started
+    earlier."""
+    bins = h.svc.create_chore(h.eric, "Bins")
+    rule = h.svc.create_rule(h.eric, bins["id"], h.cass["id"], Pattern(weekdays=frozenset(range(1, 8))))
+    today = rule.created                       # the database's today, in local time
+    past = today - dt.timedelta(days=14)
+    mine = lambda a, b: [e for e in h.svc.calendar(a, b) if e.occurrence.chore_id == bins["id"]]
+    assert mine(past, today - dt.timedelta(days=1)) == []
+    assert [e.occurrence.date for e in mine(today, today)] == [today]
+    h.svc.update_rule(h.eric, rule.id, rule.chore_id, rule.person_id, rule.pattern, start=past)
+    assert len(mine(past, today - dt.timedelta(days=1))) == 14, "an explicit earlier start reaches back"
+    # Editing keeps the original creation day; it isn't reset to the edit.
+    assert h.svc.rule(rule.id).created == today

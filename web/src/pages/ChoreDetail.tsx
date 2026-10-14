@@ -188,7 +188,8 @@ function RotationEditor({ chore, group, people, onSaved, isNew, onCancel, others
         <label>First day<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
         <label>Last day<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
       </fieldset>
-      <p className="muted">{timeWindow(from || null, due || null) || "Any time of day"} · {start ? `from ${start}` : "in effect now"}{end ? `, last day ${end}` : ", no end date"}</p>
+      <p className="muted">{timeWindow(from || null, due || null) || "Any time of day"} · {start ? `from ${start}`
+        : group.rules[0]?.first_day ? `since ${group.rules[0].first_day}, when it was set up` : "from today"}{end ? `, last day ${end}` : ", no end date"}</p>
       {badRange && <p className="error" role="alert">The last day is before the first.</p>}
       {badWindow && <p className="error" role="alert">The start time is after the due time.</p>}
       {clash.map((o) => (

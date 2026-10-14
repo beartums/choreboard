@@ -58,13 +58,22 @@ class Rule:
     start: Date | None = None
     end: Date | None = None
     available: dt.time | None = None        # start of the day's window: not before
+    # The day the rule was made. With no explicit `start`, a rule begins here:
+    # a schedule entered today doesn't reach back and fill in the past. An
+    # explicit start -- earlier or later -- always wins.
+    created: Date | None = None
 
     def __post_init__(self) -> None:
         if self.available and self.due and self.available >= self.due:
             raise ValueError("the start time must be before the due time")
 
+    @property
+    def first_day(self) -> Date | None:
+        return self.start if self.start is not None else self.created
+
     def occurs(self, d: Date) -> bool:
-        if self.start is not None and d < self.start:
+        first = self.first_day
+        if first is not None and d < first:
             return False
         if self.end is not None and d > self.end:
             return False
