@@ -7,7 +7,7 @@ write rules, or people record outcomes only on their own chores -- is a
 change to this function and its tests, and nowhere else.
 
 Actions: people.write, chores.write, rules.write, overrides.write,
-outcomes.write (ctx: key or outcome_id), ledger.write.
+outcomes.write (ctx: key or outcome_id), ledger.write, tokens.write.
 """
 from __future__ import annotations
 

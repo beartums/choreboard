@@ -10,6 +10,8 @@ out later, in one place") -- that one place is policy.py.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import secrets
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -18,6 +20,8 @@ from typing import Any, Iterator
 from . import policy
 from .calendar import Occurrence, OccurrenceKey, Override, Pattern, Rule, calendar, plan_swap
 
+SCOPES = ("read", "write", "act_as")
+TOKEN_PREFIX = "cb_"
 STATUSES = ("done", "skipped", "failed", "covered", "failed_covered")
 NEEDS_NOTE = ("failed", "covered", "failed_covered")      # the household's rule
 NEEDS_DOER = ("covered", "failed_covered")
@@ -137,9 +141,37 @@ class Service:
             raise Invalid("the first person needs the email they sign in with")
         return self.create_person({"id": None, "active": 1}, name, email=email, role="admin")
 
-    def person_by_email(self, email: str) -> dict[str, Any] | None:
-        row = self._one("SELECT * FROM people WHERE email = ? AND active = 1", email.strip().lower())
+    def person_by_email(self, email: str, include_inactive: bool = False) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM people WHERE email = ?" + ("" if include_inactive else " AND active = 1"),
+                        email.strip().lower())
         return dict(row) if row else None
+
+    def update_person(self, actor: dict[str, Any] | None, pid: int, **fields: Any) -> dict[str, Any]:
+        """Change name, email, color, role or active."""
+        self._check(actor, "people.write")
+        self._person(pid)
+        allowed = {"name", "email", "color", "role", "active"}
+        bad = set(fields) - allowed
+        if bad:
+            raise Invalid(f"can't change {', '.join(sorted(bad))}")
+        if "role" in fields and fields["role"] not in ("admin", "member"):
+            raise Invalid("role is admin or member")
+        if "name" in fields and not str(fields["name"]).strip():
+            raise Invalid("name can't be empty")
+        if "email" in fields:
+            fields["email"] = (fields["email"] or "").strip().lower() or None
+        if "active" in fields:
+            fields["active"] = 1 if fields["active"] else 0
+        if fields:
+            try:
+                self.db.execute(f"UPDATE people SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?",
+                                (*fields.values(), pid))
+            except sqlite3.IntegrityError:
+                raise Conflict(f"someone already has {fields.get('email')}") from None
+        return self._person(pid)
+
+    def person(self, pid: int) -> dict[str, Any]:
+        return self._person(pid)
 
     def people(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self._all("SELECT * FROM people WHERE active = 1 ORDER BY id")]
@@ -154,6 +186,28 @@ class Service:
         cur = self.db.execute("INSERT INTO chores (title, points, description, icon) VALUES (?, ?, ?, ?)",
                               (title.strip(), points, description, icon))
         return self._chore(cur.lastrowid)
+
+    def update_chore(self, actor: dict[str, Any] | None, cid: int, **fields: Any) -> dict[str, Any]:
+        """Change title, description, icon, points or active. Points already
+        earned are in the ledger and don't change."""
+        self._check(actor, "chores.write")
+        self._chore(cid)
+        bad = set(fields) - {"title", "description", "icon", "points", "active"}
+        if bad:
+            raise Invalid(f"can't change {', '.join(sorted(bad))}")
+        if "points" in fields and (not isinstance(fields["points"], int) or fields["points"] < 0):
+            raise Invalid("points is a whole number, 0 or more")
+        if "title" in fields and not str(fields["title"]).strip():
+            raise Invalid("title can't be empty")
+        if "active" in fields:
+            fields["active"] = 1 if fields["active"] else 0
+        if fields:
+            self.db.execute(f"UPDATE chores SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?",
+                            (*fields.values(), cid))
+        return self._chore(cid)
+
+    def chore(self, cid: int) -> dict[str, Any]:
+        return self._chore(cid)
 
     def chores(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self._all("SELECT * FROM chores WHERE active = 1 ORDER BY id")]
@@ -447,6 +501,63 @@ class Service:
         self._person(person_id)
         return [dict(r) for r in self._all(
             "SELECT * FROM ledger WHERE person_id = ? ORDER BY id DESC LIMIT ?", person_id, limit)]
+
+
+    # --- API tokens -----------------------------------------------------------
+
+    def create_token(self, actor: dict[str, Any] | None, name: str, scopes: list[str],
+                     person_id: int | None = None) -> tuple[str, dict[str, Any]]:
+        """A token for a machine. Returns (the token, its record); the token
+        is shown once -- only its hash is kept. It acts in `person_id`'s name
+        (default: whoever creates it); `act_as` lets it name another person
+        per request, which is how nav acts for the viewer."""
+        self._check(actor, "tokens.write")
+        if not name.strip():
+            raise Invalid("a token needs a name")
+        bad = set(scopes) - set(SCOPES)
+        if bad or not scopes:
+            raise Invalid(f"scopes are some of {', '.join(SCOPES)}")
+        owner = person_id if person_id is not None else (actor or {}).get("id")
+        if owner is None:
+            raise Invalid("whose name does the token act in? (person_id)")
+        self._person(owner)
+        raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
+        cur = self.db.execute(
+            "INSERT INTO tokens (name, prefix, hash, person_id, scopes, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+            (name.strip(), raw[:10], _hash(raw), owner, ",".join(sorted(set(scopes))), (actor or {}).get("id")))
+        return raw, self._token(cur.lastrowid)
+
+    def _token(self, tid: int) -> dict[str, Any]:
+        row = self._one("SELECT id, name, prefix, person_id, scopes, created_by, created_at, last_used, revoked_at"
+                        " FROM tokens WHERE id = ?", tid)
+        if row is None:
+            raise NotFound(f"no token {tid}")
+        return {**dict(row), "scopes": row["scopes"].split(",")}
+
+    def tokens(self) -> list[dict[str, Any]]:
+        return [self._token(r["id"]) for r in self._all("SELECT id FROM tokens ORDER BY id")]
+
+    def revoke_token(self, actor: dict[str, Any] | None, tid: int) -> dict[str, Any]:
+        self._check(actor, "tokens.write")
+        self._token(tid)
+        self.db.execute("UPDATE tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+                        " WHERE id = ? AND revoked_at IS NULL", (tid,))
+        return self._token(tid)
+
+    def token_lookup(self, raw: str) -> dict[str, Any] | None:
+        """The live token a presented string is, or None. Marks it used."""
+        if not raw.startswith(TOKEN_PREFIX):
+            return None
+        row = self._one("SELECT id FROM tokens WHERE hash = ? AND revoked_at IS NULL", _hash(raw))
+        if row is None:
+            return None
+        self.db.execute("UPDATE tokens SET last_used = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
+                        (row["id"],))
+        return self._token(row["id"])
+
+
+def _hash(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 class _Tx:

@@ -100,6 +100,21 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX ledger_person ON ledger(person_id);
     """,
+    # 2: API tokens for machines (nav, automations). Only a hash is stored.
+    """
+    CREATE TABLE tokens (
+        id          INTEGER PRIMARY KEY,
+        name        TEXT NOT NULL,
+        prefix      TEXT NOT NULL,               -- first characters, to recognise it in a list
+        hash        TEXT NOT NULL UNIQUE,        -- sha256 of the whole token
+        person_id   INTEGER NOT NULL REFERENCES people(id),   -- whose name it acts in
+        scopes      TEXT NOT NULL,               -- comma list: read, write, act_as
+        created_by  INTEGER REFERENCES people(id),
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+        last_used   TEXT,
+        revoked_at  TEXT
+    );
+    """,
 ]
 
 

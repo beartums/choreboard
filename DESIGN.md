@@ -91,8 +91,8 @@ whole while neither of its sides has an outcome.
 
 1. Calendar engine + tests. ✅
 2. Storage (SQLite), outcomes, ledger, swaps. ✅
-3. HTTP API (FastAPI), CRUD, tokens, Pomerium verification. ← next
-4. Container, CI (tests + multi-arch image), deploy in griflab `tools`.
+3. HTTP API (FastAPI), CRUD, tokens, Pomerium verification. ✅
+4. Container, CI (tests + multi-arch image), deploy in griflab `tools`. ← next
 5. Setup UI.
 6. nav widget via a token.
 
@@ -116,3 +116,17 @@ Out of the first version: rewards, streaks, photos, notifications.
   change) but never its outcomes or points.
 - **The first person** is created by `bootstrap` (no actor), as an admin, and
   only while nobody exists.
+
+## Decisions made in step 3
+
+- **Sign-in is verified, never trusted.** The Pomerium assertion's signature
+  (ES256/RS256 against the JWKS), expiry and audience are all checked. A plain
+  identity header is ignored.
+- **Auto-join** (on by default): someone Pomerium let in, with no person yet,
+  becomes a member named from the token. Before setup, they may only run setup.
+- **Tokens** are stored as a sha256 hash, shown once, act in their owner's name,
+  and can be revoked. `act_as` is the scope nav needs. Tokens can't create
+  tokens or run setup.
+- **One request at a time.** A single SQLite connection behind an asyncio lock:
+  simpler than a pool, and a household doesn't need concurrency.
+- **`/healthz` is unauthenticated** (for probes); everything else needs a caller.

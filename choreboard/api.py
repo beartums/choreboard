@@ -1,0 +1,306 @@
+"""The HTTP API: a thin skin over service.py. Bodies are validated here;
+every decision is made there. Interactive docs at /docs.
+
+Run: uvicorn --factory choreboard.api:create_app   (settings: CHOREBOARD_* env, auth.py)
+"""
+from __future__ import annotations
+
+import asyncio
+import datetime as dt
+from typing import Any, Literal
+
+from fastapi import Depends, FastAPI, Query, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from . import schema
+from .auth import Authenticator, Caller, PomeriumVerifier, Settings, Unauthenticated
+from .calendar import Pattern
+from .service import Entry, Error, Invalid, Service, entries_json, parse_key
+
+Weekday = int
+
+
+class PersonIn(BaseModel):
+    name: str
+    email: str | None = None
+    color: str = ""
+    role: Literal["admin", "member"] = "member"
+
+
+class PersonPatch(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    color: str | None = None
+    role: Literal["admin", "member"] | None = None
+    active: bool | None = None
+
+
+class ChoreIn(BaseModel):
+    title: str
+    points: int = Field(0, ge=0)
+    description: str = ""
+    icon: str = ""
+
+
+class ChorePatch(BaseModel):
+    title: str | None = None
+    points: int | None = Field(None, ge=0)
+    description: str | None = None
+    icon: str | None = None
+    active: bool | None = None
+
+
+class RuleIn(BaseModel):
+    """Exactly one of: weekdays (ISO, 1 = Monday ... 7 = Sunday);
+    every_days + anchor; on."""
+    chore_id: int
+    person_id: int
+    weekdays: list[Weekday] | None = None
+    every_days: int | None = None
+    anchor: dt.date | None = None
+    on: dt.date | None = None
+    due: dt.time | None = None
+    start: dt.date | None = None
+    end: dt.date | None = None
+
+    def pattern(self) -> Pattern:
+        try:
+            return Pattern(weekdays=frozenset(self.weekdays) if self.weekdays is not None else None,
+                           every_days=self.every_days, anchor=self.anchor, on=self.on)
+        except ValueError as e:
+            raise Invalid(str(e)) from None
+
+
+class Reason(BaseModel):
+    reason: str = ""
+
+
+class ReassignIn(BaseModel):
+    person_id: int
+    reason: str = ""
+
+
+class AddIn(BaseModel):
+    chore_id: int
+    date: dt.date
+    person_id: int
+    due: dt.time | None = None
+    reason: str = ""
+
+
+class SwapIn(BaseModel):
+    a: str = Field(description="occurrence id, chore:YYYY-MM-DD:rule|add:id")
+    b: str
+    reason: str
+
+
+class OutcomeIn(BaseModel):
+    status: Literal["done", "skipped", "failed", "covered", "failed_covered"]
+    note: str = ""
+    done_by: int | None = None
+    deduct: int | None = Field(None, ge=0)
+
+
+class Note(BaseModel):
+    note: str
+
+
+class AdjustIn(BaseModel):
+    person_id: int
+    delta: int
+    note: str
+
+
+class TokenIn(BaseModel):
+    name: str
+    scopes: list[Literal["read", "write", "act_as"]] = ["read"]
+    person_id: int | None = None
+
+
+class SetupIn(BaseModel):
+    name: str
+
+
+def _rule_json(r: Any) -> dict[str, Any]:
+    p = r.pattern
+    return {"id": r.id, "chore_id": r.chore_id, "person_id": r.person_id,
+            "weekdays": sorted(p.weekdays) if p.weekdays else None, "every_days": p.every_days,
+            "anchor": p.anchor, "on": p.on, "due": r.due.strftime("%H:%M") if r.due else None,
+            "start": r.start, "end": r.end}
+
+
+def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | None = None,
+               conn: Any = None) -> FastAPI:
+    settings = settings or Settings.from_env()
+    svc = Service(conn if conn is not None else schema.connect(settings.db_path))
+    authn = Authenticator(settings, svc, verifier)
+    app = FastAPI(title="choreboard", version="0.1.0",
+                  description="Household chores as a calendar: rules give the defaults, date overrides win.")
+
+    # One SQLite connection, one request at a time. A household makes a few
+    # requests a minute; serialising them is simpler than a connection pool
+    # and keeps transactions from interleaving on the shared connection.
+    lock = asyncio.Lock()
+
+    @app.middleware("http")
+    async def _one_at_a_time(request: Request, call_next: Any) -> Any:
+        async with lock:
+            return await call_next(request)
+
+    @app.exception_handler(Error)
+    async def _service_error(_: Request, e: Error) -> JSONResponse:
+        return JSONResponse({"error": str(e)}, status_code=e.status)
+
+    @app.exception_handler(Unauthenticated)
+    async def _unauth(_: Request, e: Unauthenticated) -> JSONResponse:
+        return JSONResponse({"error": str(e)}, status_code=401)
+
+    def caller(request: Request) -> Caller:
+        return authn.resolve(request.method, dict(request.headers))
+
+    def actor(c: Caller = Depends(caller)) -> dict[str, Any]:
+        if c.person is None:
+            raise Invalid("nobody is set up yet: POST /api/setup first")
+        return c.person
+
+    # --- health, identity, setup ------------------------------------------------
+
+    @app.get("/healthz", include_in_schema=False)
+    def healthz() -> dict[str, str]:
+        svc.db.execute("SELECT 1")
+        return {"status": "ok"}
+
+    @app.get("/api/me")
+    def me(c: Caller = Depends(caller)) -> dict[str, Any]:
+        return {"email": c.email, "person": c.person, "via": c.via, "scopes": sorted(c.scopes),
+                "needs_setup": c.person is None}
+
+    @app.post("/api/setup", status_code=201)
+    def setup(body: SetupIn, c: Caller = Depends(caller)) -> dict[str, Any]:
+        """The first person: the signed-in caller, as an admin."""
+        if c.via == "token":
+            raise Invalid("setup is done by a person signing in, not a token")
+        return svc.bootstrap(body.name, c.email)
+
+    # --- people and chores ------------------------------------------------------
+
+    @app.get("/api/people")
+    def people(_: Caller = Depends(caller)) -> list[dict[str, Any]]:
+        return svc.people()
+
+    @app.post("/api/people", status_code=201)
+    def create_person(body: PersonIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.create_person(a, body.name, email=body.email, color=body.color, role=body.role)
+
+    @app.patch("/api/people/{pid}")
+    def update_person(pid: int, body: PersonPatch, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.update_person(a, pid, **body.model_dump(exclude_unset=True))
+
+    @app.get("/api/chores")
+    def chores(_: Caller = Depends(caller)) -> list[dict[str, Any]]:
+        return svc.chores()
+
+    @app.post("/api/chores", status_code=201)
+    def create_chore(body: ChoreIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.create_chore(a, body.title, points=body.points, description=body.description, icon=body.icon)
+
+    @app.patch("/api/chores/{cid}")
+    def update_chore(cid: int, body: ChorePatch, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.update_chore(a, cid, **body.model_dump(exclude_unset=True))
+
+    # --- rules ------------------------------------------------------------------
+
+    @app.get("/api/rules")
+    def rules(chore_id: int | None = None, _: Caller = Depends(caller)) -> list[dict[str, Any]]:
+        return [_rule_json(r) for r in svc.rules(chore_id)]
+
+    @app.post("/api/rules", status_code=201)
+    def create_rule(body: RuleIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return _rule_json(svc.create_rule(a, body.chore_id, body.person_id, body.pattern(), due=body.due,
+                                          start=body.start, end=body.end))
+
+    @app.put("/api/rules/{rid}")
+    def update_rule(rid: int, body: RuleIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return _rule_json(svc.update_rule(a, rid, body.chore_id, body.person_id, body.pattern(), due=body.due,
+                                          start=body.start, end=body.end))
+
+    @app.delete("/api/rules/{rid}", status_code=204)
+    def delete_rule(rid: int, a: dict = Depends(actor)) -> None:
+        svc.delete_rule(a, rid)
+
+    # --- the calendar and what changes it ---------------------------------------
+
+    @app.get("/api/calendar")
+    def calendar(start: dt.date = Query(alias="from"), end: dt.date = Query(alias="to"),
+                 person_id: int | None = None, include_skipped: bool = True,
+                 _: Caller = Depends(caller)) -> list[dict[str, Any]]:
+        """Every occurrence from `from` to `to` (inclusive, at most a year),
+        overrides applied, with any outcome recorded against it."""
+        return list(entries_json(svc.calendar(start, end, person_id, include_skipped)))
+
+    def _occ(o: Any) -> dict[str, Any]:
+        return next(entries_json([Entry(o, None)]))
+
+    @app.post("/api/occurrences/{key}/reassign")
+    def reassign(key: str, body: ReassignIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return _occ(svc.reassign(a, parse_key(key), body.person_id, body.reason))
+
+    @app.post("/api/occurrences/{key}/skip")
+    def skip(key: str, body: Reason, a: dict = Depends(actor)) -> dict[str, Any]:
+        return _occ(svc.skip(a, parse_key(key), body.reason))
+
+    @app.post("/api/occurrences", status_code=201)
+    def add(body: AddIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return _occ(svc.add(a, body.chore_id, body.date, body.person_id, body.reason, body.due))
+
+    @app.post("/api/swaps", status_code=201)
+    def swap(body: SwapIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        group = svc.swap(a, parse_key(body.a), parse_key(body.b), body.reason)
+        return {"group_id": group, "a": _occ(svc.occurrence(parse_key(body.a))),
+                "b": _occ(svc.occurrence(parse_key(body.b)))}
+
+    @app.delete("/api/overrides/{group_or_id}")
+    def remove_override(group_or_id: str, a: dict = Depends(actor)) -> dict[str, int]:
+        """Undo a swap (its group id) or one override (its numeric id)."""
+        return {"removed": svc.remove_override_group(a, group_or_id)}
+
+    # --- outcomes and points ----------------------------------------------------
+
+    @app.post("/api/occurrences/{key}/outcome", status_code=201)
+    def record(key: str, body: OutcomeIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.record(a, parse_key(key), body.status, note=body.note, done_by=body.done_by, deduct=body.deduct)
+
+    @app.post("/api/outcomes/{oid}/undo")
+    def undo(oid: int, body: Note, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.undo(a, oid, body.note)
+
+    @app.get("/api/people/{pid}/points")
+    def points(pid: int, limit: int = Query(100, ge=1, le=1000), _: Caller = Depends(caller)) -> dict[str, Any]:
+        return {"person_id": pid, "balance": svc.balance(pid), "entries": svc.ledger(pid, limit)}
+
+    @app.post("/api/ledger", status_code=201)
+    def adjust(body: AdjustIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.adjust(a, body.person_id, body.delta, body.note)
+
+    # --- tokens -----------------------------------------------------------------
+
+    @app.get("/api/tokens")
+    def tokens(_: dict = Depends(actor)) -> list[dict[str, Any]]:
+        return svc.tokens()
+
+    @app.post("/api/tokens", status_code=201)
+    def create_token(body: TokenIn, a: dict = Depends(actor), c: Caller = Depends(caller)) -> dict[str, Any]:
+        """The token is in this response ONLY; keep it."""
+        if c.via == "token":
+            raise Invalid("tokens are created by a person signing in, not by another token")
+        raw, rec = svc.create_token(a, body.name, list(body.scopes), body.person_id)
+        return {**rec, "token": raw}
+
+    @app.delete("/api/tokens/{tid}")
+    def revoke_token(tid: int, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.revoke_token(a, tid)
+
+    app.state.svc = svc
+    return app
+
