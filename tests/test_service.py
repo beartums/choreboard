@@ -1,0 +1,194 @@
+"""The service on a real (in-memory) database: the household's dog-walking
+rotation, outcomes and points, swaps and their undo."""
+import datetime as dt
+
+import pytest
+
+from choreboard import schema
+from choreboard.calendar import Pattern
+from choreboard.service import Conflict, Forbidden, Invalid, NotFound, Service, entries_json, key_str, parse_key
+
+D = dt.date
+MON, WED, SUN = D(2026, 10, 19), D(2026, 10, 21), D(2026, 10, 25)
+
+
+@pytest.fixture
+def h():
+    """A household: Eric (admin) bootstraps, adds Tucker, Cass and Mom, and
+    the dog's rules. Returns a namespace of handles."""
+    svc = Service(schema.connect(":memory:"))
+    eric = svc.bootstrap("Eric", "Eric@Example.com")
+    tucker = svc.create_person(eric, "Tucker", email="tucker@example.com")
+    cass = svc.create_person(eric, "Cassandra", email="cass@example.com")
+    mom = svc.create_person(eric, "Mom", email="mom@example.com")
+    dog = svc.create_chore(eric, "Walk the dog", points=3, icon="🐕")
+    evening = dt.time(18)
+    for person, days in ((tucker, {1, 3}), (cass, {2, 6}), (mom, {4, 5}), (eric, {7})):
+        svc.create_rule(eric, dog["id"], person["id"], Pattern(weekdays=frozenset(days)), due=evening)
+
+    class H:
+        pass
+    x = H()
+    x.svc, x.eric, x.tucker, x.cass, x.mom, x.dog = svc, eric, tucker, cass, mom, dog
+    return x
+
+
+def key_on(h, date, person=None):
+    for e in h.svc.calendar(date, date):
+        if person is None or e.occurrence.person_id == person["id"]:
+            return e.occurrence.key
+    raise AssertionError(f"nothing on {date}")
+
+
+def who(h, start=MON, end=SUN):
+    return [(e.occurrence.date.isoweekday(), e.occurrence.person_id) for e in h.svc.calendar(start, end)]
+
+
+def test_bootstrap_once_and_email_is_identity(h):
+    assert h.eric["role"] == "admin" and h.eric["email"] == "eric@example.com"
+    assert h.svc.person_by_email("ERIC@example.com")["id"] == h.eric["id"]
+    with pytest.raises(Conflict):
+        h.svc.bootstrap("Again", "x@example.com")
+    with pytest.raises(Conflict):
+        h.svc.create_person(h.eric, "Dup", email="mom@example.com")
+
+
+def test_nobody_anonymous_can_write(h):
+    with pytest.raises(Forbidden):
+        h.svc.create_chore(None, "Sneaky")
+
+
+def test_done_earns_the_chores_points(h):
+    k = key_on(h, MON)
+    out = h.svc.record(h.tucker, k, "done")
+    assert (out["status"], out["assignee_id"], out["done_by_id"]) == ("done", h.tucker["id"], h.tucker["id"])
+    assert h.svc.balance(h.tucker["id"]) == 3
+    with pytest.raises(Conflict):
+        h.svc.record(h.tucker, k, "done")
+
+
+def test_failed_deducts_only_what_is_said_and_needs_a_reason(h):
+    k = key_on(h, MON)
+    with pytest.raises(Invalid, match="note"):
+        h.svc.record(h.eric, k, "failed", deduct=2)
+    with pytest.raises(Invalid, match="explicitly"):
+        h.svc.record(h.eric, k, "failed", note="forgot")
+    h.svc.record(h.eric, k, "failed", note="forgot again", deduct=2)
+    assert h.svc.balance(h.tucker["id"]) == -2
+    entry = h.svc.ledger(h.tucker["id"])[0]
+    assert (entry["kind"], entry["delta"]) == ("deduction", -2)
+    assert "forgot again" in entry["note"]
+
+
+def test_failed_with_zero_is_allowed_and_costs_nothing(h):
+    h.svc.record(h.eric, key_on(h, MON), "failed", note="sick", deduct=0)
+    assert h.svc.balance(h.tucker["id"]) == 0
+
+
+def test_covered_and_failed_covered(h):
+    h.svc.record(h.eric, key_on(h, MON), "covered", done_by=h.mom["id"], note="Tucker at practice")
+    assert (h.svc.balance(h.mom["id"]), h.svc.balance(h.tucker["id"])) == (3, 0)
+    h.svc.record(h.eric, key_on(h, WED), "failed_covered", done_by=h.cass["id"], note="ignored it", deduct=3)
+    assert (h.svc.balance(h.cass["id"]), h.svc.balance(h.tucker["id"])) == (3, -3)
+    with pytest.raises(Invalid, match="done_by"):
+        h.svc.record(h.eric, key_on(h, D(2026, 10, 26)), "covered", note="x")
+    with pytest.raises(Invalid, match="assignee"):
+        h.svc.record(h.eric, key_on(h, D(2026, 10, 26)), "covered", done_by=h.tucker["id"], note="x")
+
+
+def test_skipped_outcome_has_no_points_or_extras(h):
+    h.svc.record(h.eric, key_on(h, MON), "skipped")
+    assert h.svc.balance(h.tucker["id"]) == 0
+    with pytest.raises(Invalid):
+        h.svc.record(h.eric, key_on(h, WED), "skipped", deduct=1)
+
+
+def test_undo_keeps_the_record_and_reverses_the_points(h):
+    k = key_on(h, WED)
+    out = h.svc.record(h.eric, k, "failed_covered", done_by=h.cass["id"], note="ignored", deduct=2)
+    undone = h.svc.undo(h.eric, out["id"], "it was actually done")
+    assert undone["undone_at"] and undone["undo_note"] == "it was actually done"
+    assert (h.svc.balance(h.cass["id"]), h.svc.balance(h.tucker["id"])) == (0, 0)
+    kinds = [e["kind"] for e in h.svc.ledger(h.tucker["id"])]
+    assert kinds == ["reversal", "deduction"], "the ledger is appended to, never edited"
+    with pytest.raises(Conflict):
+        h.svc.undo(h.eric, out["id"], "again")
+    # The occurrence is free again.
+    assert h.svc.record(h.tucker, k, "done")["status"] == "done"
+
+
+def test_swap_this_week_only_and_undo(h):
+    sun, wed = key_on(h, SUN), key_on(h, WED)
+    with pytest.raises(Invalid, match="reason"):
+        h.svc.swap(h.eric, sun, wed, "")
+    group = h.svc.swap(h.eric, sun, wed, "Eric away Sunday")
+    T, C, M, E = (p["id"] for p in (h.tucker, h.cass, h.mom, h.eric))
+    assert who(h) == [(1, T), (2, C), (3, E), (4, M), (5, M), (6, C), (7, T)]
+    assert who(h, MON + dt.timedelta(7), SUN + dt.timedelta(7)) == [(1, T), (2, C), (3, T), (4, M), (5, M), (6, C), (7, E)]
+
+    # Tucker walks on Sunday: credited to Tucker, the swap's assignee.
+    out = h.svc.record(h.tucker, sun, "done")
+    assert out["assignee_id"] == T and h.svc.balance(T) == 3
+    with pytest.raises(Conflict, match="outcome"):
+        h.svc.remove_override_group(h.eric, group)
+    h.svc.undo(h.eric, out["id"], "swap cancelled")
+    assert h.svc.remove_override_group(h.eric, group) == 2
+    assert who(h)[2] == (3, T) and who(h)[6] == (7, E)
+
+
+def test_reassign_skip_and_add(h):
+    T, M = h.tucker["id"], h.mom["id"]
+    occ = h.svc.reassign(h.eric, key_on(h, MON), M, "Tucker sleepover")
+    assert (occ.person_id, occ.scheduled_person_id, occ.source) == (M, T, "override")
+    skipped = h.svc.skip(h.eric, key_on(h, WED), "dog at the vet")
+    assert skipped.skipped
+    with pytest.raises(Conflict, match="skipped"):
+        h.svc.record(h.eric, skipped.key, "done")
+    extra = h.svc.add(h.eric, h.dog["id"], WED, M, "extra walk", due=dt.time(8))
+    assert extra.key[2] == "add"
+    h.svc.record(h.mom, extra.key, "done")
+    assert h.svc.balance(M) == 3
+
+
+def test_editing_a_rule_keeps_history(h):
+    k = key_on(h, MON)
+    h.svc.record(h.tucker, k, "done")
+    rule = h.svc.rule(k[3])
+    h.svc.update_rule(h.eric, rule.id, rule.chore_id, h.cass["id"], rule.pattern, due=rule.due)
+    e = h.svc.calendar(MON, MON)[0]
+    assert e.occurrence.person_id == h.cass["id"], "the rule moved"
+    assert e.outcome["assignee_id"] == h.tucker["id"], "what happened did not"
+    assert h.svc.balance(h.tucker["id"]) == 3
+
+
+def test_deleting_a_rule_keeps_outcomes_and_points(h):
+    k = key_on(h, MON)
+    h.svc.record(h.tucker, k, "done")
+    h.svc.delete_rule(h.eric, k[3])
+    assert h.svc.balance(h.tucker["id"]) == 3
+    assert h.svc.outcome(1)["status"] == "done"
+    with pytest.raises(NotFound):
+        h.svc.occurrence(k)
+
+
+def test_adjustments_need_a_reason(h):
+    with pytest.raises(Invalid):
+        h.svc.adjust(h.eric, h.cass["id"], 5, " ")
+    h.svc.adjust(h.eric, h.cass["id"], 5, "birthday bonus")
+    assert h.svc.balance(h.cass["id"]) == 5
+
+
+def test_keys_round_trip_and_json(h):
+    k = key_on(h, MON)
+    assert parse_key(key_str(k)) == k
+    with pytest.raises(Invalid):
+        parse_key("1:2026-10-19:nope:4")
+    rows = list(entries_json(h.svc.calendar(MON, MON)))
+    assert rows[0]["id"] == key_str(k) and rows[0]["due"] == "18:00" and rows[0]["outcome"] is None
+
+
+def test_migrations_are_idempotent(tmp_path):
+    p = str(tmp_path / "x.db")
+    schema.connect(p).close()
+    conn = schema.connect(p)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == len(schema.MIGRATIONS)

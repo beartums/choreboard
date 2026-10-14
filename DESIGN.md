@@ -78,11 +78,30 @@ A *swap* is planned ahead (overrides); *covered* is what happened on the day
 
 ## Build order
 
-1. Calendar engine + tests. ← here
-2. Storage (SQLite), outcomes, ledger, swaps.
-3. HTTP API (FastAPI), CRUD, tokens, Pomerium verification.
+1. Calendar engine + tests. ✅
+2. Storage (SQLite), outcomes, ledger, swaps. ✅
+3. HTTP API (FastAPI), CRUD, tokens, Pomerium verification. ← next
 4. Container, CI (tests + multi-arch image), deploy in griflab `tools`.
 5. Setup UI.
 6. nav widget via a token.
 
 Out of the first version: rewards, streaks, photos, notifications.
+
+## Decisions made in step 2
+
+- **One live outcome per occurrence.** Recording a second is a conflict; undo
+  the first. An undone outcome stays in the table (`undone_at`, `undo_note`).
+- **Undo appends.** Each ledger entry of an undone outcome gets a `reversal`
+  entry; the ledger is never updated or deleted.
+- **Planned vs recorded.** A `skip` *override* (planned ahead) makes the
+  occurrence not happen; a `skipped` *outcome* (recorded on the day) says it
+  didn't need doing. Overrides and swaps are refused on an occurrence that
+  already has an outcome, and a swap can't be undone while either side has one.
+- **Notes are required** for failed, covered, failed_covered, swaps, undos and
+  adjustments. `failed` requires `deduct` stated explicitly (0 is allowed).
+- **Points are copied** into the ledger when earned, so changing a chore's
+  points later doesn't rewrite history.
+- **Deleting a rule** removes its overrides (they have nothing left to
+  change) but never its outcomes or points.
+- **The first person** is created by `bootstrap` (no actor), as an admin, and
+  only while nobody exists.

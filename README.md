@@ -4,8 +4,10 @@ Household chores as a calendar: schedule rules give the defaults, and an
 override for a specific date wins on that date and nowhere else. Points live
 in an append-only ledger with a reason on every entry.
 
-Status: **step 1 of 6** — the calendar engine (`choreboard/calendar.py`),
-pure and tested. Storage, the HTTP API, deployment and a setup UI follow.
+Status: **step 2 of 6.** Done: the calendar engine (`choreboard/calendar.py`,
+pure) and the service over SQLite (`choreboard/service.py`): people, chores,
+rules, overrides and swaps, outcomes and the points ledger. Next: the HTTP
+API, then deployment and a setup UI.
 Read [DESIGN.md](DESIGN.md) first.
 
 ```sh
