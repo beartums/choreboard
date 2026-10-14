@@ -7,3 +7,5 @@ htmlcov
 tests
 **/__pycache__
 *.db
+web/node_modules
+choreboard/static

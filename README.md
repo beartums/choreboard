@@ -4,10 +4,10 @@ Household chores as a calendar: schedule rules give the defaults, and an
 override for a specific date wins on that date and nowhere else. Points live
 in an append-only ledger with a reason on every entry.
 
-Status: **step 3 of 6.** Done: the calendar engine (`calendar.py`, pure),
-the service over SQLite (`service.py`), and the HTTP API (`api.py`) with
-Pomerium sign-in and API tokens (`auth.py`). Next: container, CI and
-deployment, then a setup UI.
+Status: **step 5 of 6, in progress.** Done: the calendar engine
+(`calendar.py`), the service over SQLite (`service.py`), the HTTP API
+(`api.py`, `auth.py`), the image and deployment, and the setup UI (`web/`:
+people, chores, weekly rotations and other schedules). Next: the calendar view.
 
 ## Run it locally
 
@@ -20,6 +20,15 @@ CHOREBOARD_DB=./dev.db CHOREBOARD_DEV_EMAIL=you@example.com \
 
 Then open <http://localhost:8000/docs>: `POST /api/setup` makes you the first
 admin, and every other route is there to try.
+
+The UI (`web/`, React + TypeScript + Vite) in another terminal:
+
+```sh
+cd web && npm install
+npm run dev        # http://localhost:5173, /api proxied to :8000
+npm test           # vitest + Testing Library
+npm run build      # into choreboard/static, which the API serves at /
+```
 
 ## Configuration
 

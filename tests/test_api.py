@@ -188,3 +188,19 @@ def test_patch_chore_and_person(client, home):
     assert p.status_code == 200 and p.json()["name"] == "Mum"
     assert client.patch(f"/api/people/{ids['mom']}", json={"email": "eric@example.com"}, headers=E).status_code == 409
     assert client.patch(f"/api/people/{ids['mom']}", json={"role": "owner"}, headers=E).status_code == 422
+
+
+def test_serves_the_ui_with_browser_routes(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<div id=root></div>")
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)")
+    app = create_app(Settings(db_path=":memory:", audience=AUD),
+                     verifier=PomeriumVerifier("", AUD, keys=lambda _t: KEY.public_key()),
+                     conn=schema.connect(":memory:"), static_dir=str(tmp_path))
+    c = TestClient(app)
+    assert "root" in c.get("/").text
+    assert "root" in c.get("/chores/3").text, "browser routes fall back to the app"
+    assert c.get("/assets/app.js").text == "console.log(1)"
+    assert c.get("/api/nope").status_code == 404 and c.get("/api/nope").json()["error"]
+    assert c.get("/api/me").status_code == 401, "API routes still win"
+    assert c.get("/../pyproject.toml").status_code in (200, 404) and "root" in c.get("/../pyproject.toml").text

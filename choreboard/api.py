@@ -8,10 +8,12 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import os
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import schema
@@ -132,7 +134,7 @@ def _rule_json(r: Any) -> dict[str, Any]:
 
 
 def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | None = None,
-               conn: Any = None) -> FastAPI:
+               conn: Any = None, static_dir: str | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     svc = Service(conn if conn is not None else schema.connect(settings.db_path))
     authn = Authenticator(settings, svc, verifier)
@@ -301,6 +303,23 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.delete("/api/tokens/{tid}")
     def revoke_token(tid: int, a: dict = Depends(actor)) -> dict[str, Any]:
         return svc.revoke_token(a, tid)
+
+    # --- the web UI (web/, built into choreboard/static) -------------------------
+    # Registered last, so every API route above wins. A browser route such as
+    # /chores/3 gets index.html and the React router takes it from there;
+    # unknown /api paths still 404 as JSON.
+    static = Path(static_dir) if static_dir else Path(__file__).parent / "static"
+    if (static / "index.html").is_file():
+        app.mount("/assets", StaticFiles(directory=static / "assets"), name="assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def ui(path: str) -> Any:
+            if path.startswith(("api/", "assets/")) or path in ("api", "docs", "redoc", "openapi.json"):
+                return JSONResponse({"error": "not found"}, status_code=404)
+            f = static / path
+            if path and f.is_file() and static in f.resolve().parents:
+                return FileResponse(f)                          # favicon and friends
+            return FileResponse(static / "index.html", headers={"cache-control": "no-cache"})
 
     app.state.svc = svc
     return app

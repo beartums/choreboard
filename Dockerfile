@@ -1,3 +1,11 @@
+# The web UI, built to static files the API serves.
+FROM node:24-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npx tsc --noEmit && npx vite build --outDir /static
+
 FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,6 +19,7 @@ RUN pip install -r requirements.txt
 
 COPY pyproject.toml README.md ./
 COPY choreboard ./choreboard
+COPY --from=web /static ./choreboard/static
 RUN pip install --no-deps .
 
 # Unprivileged, with the database on a mounted volume.

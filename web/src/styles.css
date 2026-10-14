@@ -1,0 +1,65 @@
+:root {
+  --bg: #f6f7f9; --card: #fff; --fg: #15181d; --muted: #5b6370; --line: #e2e5ea;
+  --accent: #2f8f83; --accent-fg: #fff; --danger: #b3261e; --radius: 10px;
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14161a; --card: #1d2026; --fg: #e8eaed; --muted: #9aa3b0; --line: #2c3139; --accent: #4fb3a6; --danger: #ef6b62; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+a { color: var(--accent); }
+h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+
+.top { display: flex; align-items: center; gap: 1.25rem; padding: .75rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 700; }
+.top nav { display: flex; gap: .25rem; flex: 1; }
+.top nav a { padding: .35rem .7rem; border-radius: 8px; text-decoration: none; color: var(--fg); }
+.top nav a.active { background: var(--accent); color: var(--accent-fg); }
+.who { color: var(--muted); font-size: .9rem; }
+
+.page { max-width: 820px; margin: 0 auto; padding: 1.25rem 1rem 4rem; }
+.narrow { max-width: 460px; padding-top: 3rem; }
+.muted { color: var(--muted); }
+.block { display: block; font-size: .9rem; }
+.error { color: var(--danger); margin: 0; }
+.back { display: inline-block; margin-bottom: .75rem; text-decoration: none; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
+.stack { display: flex; flex-direction: column; gap: .75rem; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; }
+.grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: .75rem; }
+@media (max-width: 560px) { .grid3 { grid-template-columns: 1fr; } }
+.actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.push { margin-left: auto; }
+
+label { display: flex; flex-direction: column; gap: .3rem; font-size: .9rem; color: var(--muted); }
+label.inline { flex-direction: row; align-items: center; gap: .5rem; }
+input, select, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; }
+button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: .45rem .9rem; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: transparent; color: var(--accent); }
+button.danger { border-color: var(--danger); color: var(--danger); }
+button.danger:not(.ghost) { background: var(--danger); color: #fff; }
+
+.list { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: .5rem; }
+.row { display: flex; align-items: center; gap: .75rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: .65rem .85rem; }
+.row.link { color: inherit; text-decoration: none; }
+.row.link:hover { border-color: var(--accent); }
+.grow { flex: 1; min-width: 0; }
+.icon { font-size: 1.4rem; width: 1.8rem; text-align: center; }
+.tag { margin-left: .5rem; font-size: .75rem; padding: .05rem .4rem; border-radius: 6px; background: var(--line); color: var(--muted); }
+
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .4rem; }
+@media (max-width: 560px) { .week { grid-template-columns: repeat(2, 1fr); } }
+.day { font-weight: 600; }
+.chips { display: flex; gap: .35rem; flex-wrap: wrap; }
+.chips button { background: transparent; color: var(--fg); border-color: var(--line); }
+.chips button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+.swatch { width: .9rem; height: .9rem; border-radius: 50%; background: var(--line); flex: none; }
+.c-coral { background: #e8795a; } .c-mint { background: #5cc7a2; } .c-butter { background: #e8c75a; }
+.c-sky { background: #5aa7e8; } .c-rose { background: #e85a8f; } .c-leaf { background: #74b34f; }
+.c-lilac { background: #a98be8; } .c-sand { background: #c9a87a; }
