@@ -87,7 +87,8 @@ export type Channel = "app" | "email" | "discord";
 export type SendChannel = Exclude<Channel, "app">;
 
 export interface Catalog {
-  events: { kind: string; label: string; scope: "mine" | "household" }[];
+  discord_invite?: string | null;
+  events: { kind: string; label: string; scope: "mine" | "household" | "admins" }[];
   channels: { channel: Channel; configured: boolean }[];
 }
 
@@ -243,6 +244,7 @@ export const api = {
     call<Subscription>("POST", "/api/me/subscriptions", { event, channel, chore_id }),
   unsubscribe: (id: number) => call<void>("DELETE", `/api/me/subscriptions/${id}`),
   deliveries: () => call<Delivery[]>("GET", "/api/me/deliveries?limit=30"),
+  requestDiscord: () => call<{ asked: number; invite: string | null }>("POST", "/api/me/discord/request"),
 
   settings: () => call<ServerSettings>("GET", "/api/settings"),
   saveSettings: (values: Record<string, string | null>) => call<ServerSettings>("PUT", "/api/settings", { values }),

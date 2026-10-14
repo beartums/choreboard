@@ -672,8 +672,8 @@ class Service:
         if channel not in notify.SUBSCRIBE_CHANNELS:
             raise Invalid(f"channel is one of {', '.join(notify.SUBSCRIBE_CHANNELS)}")
         if chore_id is not None:
-            if notify.EVENTS[event][1] == "household":
-                raise Invalid(f"'{event}' is about the whole household, not one chore")
+            if notify.EVENTS[event][1] != "mine":
+                raise Invalid(f"'{event}' isn't about one chore")
             self._chore(chore_id)
         self.db.execute("INSERT OR IGNORE INTO subscriptions (person_id, event, channel, chore_id) VALUES (?, ?, ?, ?)",
                         (person_id, event, channel, chore_id))
@@ -748,6 +748,30 @@ class Service:
             sql += f" AND id IN ({','.join('?' * len(ids))})"
             args += ids
         return self.db.execute(sql, args).rowcount
+
+    def discord_invite(self) -> str:
+        return settings.get(self.db, "discord.invite")
+
+    def request_discord(self, actor: dict[str, Any] | None) -> dict[str, Any]:
+        """Ask the admins to add me to the Discord server. Once a day per
+        person; it reaches every admin's inbox regardless of subscriptions."""
+        self._check(actor, "notifications.write", person_id=(actor or {}).get("id"))
+        me = self._person(actor["id"])                         # type: ignore[index]
+        recent = self._one("SELECT 1 FROM events WHERE kind = 'discord_request' AND actor_id = ?"
+                           " AND created_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 day')", me["id"])
+        if recent:
+            raise Conflict("you already asked today; an admin has it in their inbox")
+        admins = [r["id"] for r in self._all("SELECT id FROM people WHERE role = 'admin' AND active = 1")]
+        if admins == [me["id"]] or not admins:
+            raise Invalid("you're the only admin -- invite yourself (Settings has the invite link)")
+        did = notify.address_of(self.db, me["id"], "discord")
+        ident = f" Their Discord user id is {did}." if did else " They haven't set their Discord user id yet."
+        with self._tx():
+            notify.emit(self.db, "discord_request", actor_id=me["id"], subjects=admins,
+                        title=f"{me['name']} wants to join the Discord server",
+                        body=f"{me['name']} ({me['email'] or 'no email'}) asked to be added to the household's Discord "
+                             f"server so Choreboard can message them.{ident}")
+        return {"asked": len([a for a in admins if a != me["id"]]), "invite": self.discord_invite() or None}
 
     def deliveries(self, person_id: int, limit: int = 50) -> list[dict[str, Any]]:
         """Recent notifications for a person, with each one's outcome."""

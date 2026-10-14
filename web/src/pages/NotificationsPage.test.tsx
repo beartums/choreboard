@@ -61,3 +61,23 @@ describe("in-app channel", () => {
     expect(within(form).getByLabelText("How")).toHaveValue("app");
   });
 });
+
+describe("joining the Discord server", () => {
+  it("shows the invite link when an admin set one, and asks the admins", async () => {
+    const s = fakeApi({ configured: ["email", "discord"] });
+    (s as any).invite = "https://discord.gg/abc123";
+    show();
+    const discord = await screen.findByRole("form", { name: "Discord settings" });
+    expect(within(discord).getByRole("link", { name: "Join the server" })).toHaveAttribute("href", "https://discord.gg/abc123");
+    await userEvent.click(within(discord).getByRole("button", { name: "Ask an admin to add me" }));
+    expect(await within(discord).findByRole("status")).toHaveTextContent("2 admins have it in their inbox");
+    expect(s.calls.some((c) => c.method === "POST" && c.path === "/api/me/discord/request")).toBe(true);
+  });
+
+  it("offers nothing while the server can't send Discord", async () => {
+    fakeApi({ configured: ["email"] });
+    show();
+    const discord = await screen.findByRole("form", { name: "Discord settings" });
+    expect(within(discord).queryByRole("button", { name: "Ask an admin to add me" })).toBeNull();
+  });
+});

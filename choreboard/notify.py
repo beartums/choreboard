@@ -51,7 +51,11 @@ EVENTS: dict[str, tuple[str, str]] = {
     "schedule": ("My schedule changed", "mine"),
     "points": ("My points were adjusted", "mine"),
     "new_chore": ("A new chore was added", "household"),
+    # To admins. Always in their inbox -- a request nobody sees is no request.
+    "discord_request": ("Someone asked to be added to the Discord server", "admins"),
 }
+# Events that land in these people's inbox even without a subscription.
+ALWAYS_INBOX = {"discord_request"}
 
 # Retry delays after a failed attempt; after the last, the delivery fails.
 BACKOFF = [dt.timedelta(minutes=1), dt.timedelta(minutes=5), dt.timedelta(minutes=30), dt.timedelta(hours=2)]
@@ -82,7 +86,7 @@ def emit(db: sqlite3.Connection, kind: str, *, actor_id: int | None, subjects: I
         if pid == actor_id:
             continue                                  # never about your own action
         wanted = _channels_for(db, pid, kind, chore_id)
-        if not wanted:
+        if not wanted and kind not in ALWAYS_INBOX:
             continue                                  # ignored: the default
         db.execute("INSERT OR IGNORE INTO notifications (person_id, event_id) VALUES (?, ?)", (pid, event_id))
         for channel in wanted:

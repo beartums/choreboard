@@ -399,10 +399,12 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     # --- notifications ---------------------------------------------------------
 
     @app.get("/api/notifications/catalog")
-    def catalog(_: Caller = Depends(caller)) -> dict[str, Any]:
+    def catalog(c: Caller = Depends(caller)) -> dict[str, Any]:
         """The events you can subscribe to, and which channels this server
         can actually send on."""
-        return {"events": [{"kind": k, "label": lbl, "scope": sc} for k, (lbl, sc) in notify.EVENTS.items()],
+        return {"discord_invite": svc.discord_invite() or None,
+                "events": [{"kind": k, "label": lbl, "scope": sc} for k, (lbl, sc) in notify.EVENTS.items()
+                           if sc != "admins" or (c.person or {}).get("role") == "admin"],
                 "channels": [{"channel": "app", "configured": True}]
                 + [{"channel": c, "configured": c in current_senders()} for c in notify.CHANNELS]}
 
@@ -435,6 +437,11 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.post("/api/me/inbox/read")
     def mark_read(body: ReadIn, a: dict = Depends(actor)) -> dict[str, int]:
         return {"changed": svc.mark_read(a, a["id"], body.ids, body.read), "unread": svc.unread(a["id"])}
+
+    @app.post("/api/me/discord/request", status_code=201)
+    def request_discord(a: dict = Depends(actor)) -> dict[str, Any]:
+        """Ask the admins to add me to the Discord server the bot is in."""
+        return svc.request_discord(a)
 
     @app.get("/api/me/deliveries")
     def my_deliveries(limit: int = Query(50, ge=1, le=200), a: dict = Depends(actor)) -> list[dict[str, Any]]:

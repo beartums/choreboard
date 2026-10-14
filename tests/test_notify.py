@@ -122,7 +122,7 @@ def test_new_chore_reaches_everyone_but_whoever_added_it(h):
     h.svc.create_chore(h.mom, "Water plants", points=1, icon="🪴")
     assert [d["title"] for d in queued(h, h.tucker)] == ["New chore: 🪴 Water plants"]
     assert queued(h, h.eric) and not queued(h, h.mom)
-    with pytest.raises(Invalid, match="whole household"):
+    with pytest.raises(Invalid, match="isn.t about one chore"):
         h.svc.subscribe(h.tucker, h.tucker["id"], "new_chore", "email", chore_id=h.dog["id"])
 
 
@@ -333,3 +333,37 @@ def test_discord_refusals_fail_at_once_rate_limits_retry(monkeypatch):
     monkeypatch.setattr(notify.urllib.request, "urlopen", refuse(429, b'{"message": "rate limited", "retry_after": 1}'))
     err, retry = notify.send_one(d, {"discord": notify.DiscordSender("tok")})
     assert retry is True
+
+
+def test_asking_to_join_the_discord_server_reaches_every_admin(h):
+    from choreboard.service import Conflict
+    h.svc.update_person(h.eric, h.mom["id"], role="admin")
+    h.svc.set_channel(h.tucker, h.tucker["id"], "discord", "123456789012345678")
+    got = h.svc.request_discord(h.tucker)
+    assert got["asked"] == 2
+    for admin in (h.eric, h.mom):
+        [n] = h.svc.inbox(admin["id"])                  # no subscription needed
+        assert n["title"] == "Tucker wants to join the Discord server"
+        assert "123456789012345678" in n["body"]
+    assert h.svc.inbox(h.tucker["id"]) == []
+    with pytest.raises(Conflict, match="already asked today"):
+        h.svc.request_discord(h.tucker)
+    # An admin who subscribed by email gets an email too.
+    h.svc.subscribe(h.eric, h.eric["id"], "discord_request", "email")
+    h.svc.request_discord(h.mom)
+    assert [d["kind"] for d in queued(h, h.eric)] == ["discord_request"]
+
+
+def test_the_only_admin_is_told_to_invite_themselves(h):
+    with pytest.raises(Invalid, match="only admin"):
+        h.svc.request_discord(h.eric)
+
+
+def test_invite_link_setting(h, monkeypatch):
+    from choreboard import settings as st
+    monkeypatch.delenv("CHOREBOARD_DISCORD_INVITE", raising=False)
+    with pytest.raises(Invalid, match="discord.gg"):
+        h.svc.update_server_settings(h.eric, {"discord.invite": "join us!"})
+    h.svc.update_server_settings(h.eric, {"discord.invite": "https://discord.gg/abc123"})
+    assert h.svc.discord_invite() == "https://discord.gg/abc123"
+    assert st.get(h.svc.db, "discord.invite") == "https://discord.gg/abc123"

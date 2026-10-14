@@ -48,6 +48,9 @@ FIELDS: list[Field] = [
     Field("smtp.from", "CHOREBOARD_SMTP_FROM", "From", help='default: "Choreboard <SMTP user>"'),
     Field("discord.token", "CHOREBOARD_DISCORD_TOKEN", "Discord bot token", secret=True,
           help="discord.com/developers -> your application -> Bot -> Reset Token"),
+    Field("discord.invite", "CHOREBOARD_DISCORD_INVITE", "Server invite link",
+          help="the bot can only DM people in a server with it: right-click the server -> Invite People -> "
+               "Edit invite link -> never expires. Shown to everyone on their notification settings."),
 ]
 BY_KEY = {f.key: f for f in FIELDS}
 
@@ -128,6 +131,8 @@ def put(db: sqlite3.Connection, changes: dict[str, str | None], by: int | None) 
         value = value.strip()
         if key == "smtp.port" and not (value.isdigit() and 0 < int(value) < 65536):
             raise SettingsError("the SMTP port is a number, usually 587")
+        if key == "discord.invite" and not value.startswith(("https://discord.gg/", "https://discord.com/invite/")):
+            raise SettingsError("an invite link looks like https://discord.gg/abc123")
         if f.secret:
             fernet = _fernet()
             if fernet is None:

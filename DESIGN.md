@@ -179,3 +179,10 @@ Out of the first version: rewards, streaks, photos, notifications.
 - **Tokens are admin-only** (v0.6.1): a token with `act_as` can act as anyone,
   so minting, listing and revoking them is `tokens.read`/`tokens.write`,
   admins only. The Settings → API tokens page shows a new token once.
+- **Joining the Discord server** (v0.7.0): the bot can only DM people it
+  shares a server with. An admin sets the server's invite link in Settings
+  (`discord.invite`, also `CHOREBOARD_DISCORD_INVITE`); everyone's Discord
+  card shows **Join the server**, and **Ask an admin to add me** emits
+  `discord_request` to every admin -- always into their inbox (no
+  subscription needed), plus email/Discord if they subscribe. Once a day per
+  person.

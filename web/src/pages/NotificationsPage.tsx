@@ -51,7 +51,8 @@ export function NotificationsPage() {
       <h2>Where</h2>
       <div className="grid2">
         {(["email", "discord"] as SendChannel[]).map((c) => (
-          <ChannelCard key={c} channel={c} setting={channels[c]} configured={configured(c)} onSaved={load} />
+          <ChannelCard key={c} channel={c} setting={channels[c]} configured={configured(c)} onSaved={load}
+            invite={c === "discord" ? catalog.discord_invite ?? null : null} />
         ))}
       </div>
 
@@ -96,8 +97,8 @@ export function NotificationsPage() {
   );
 }
 
-function ChannelCard({ channel, setting, configured, onSaved }:
-  { channel: SendChannel; setting: ChannelSetting; configured: boolean; onSaved: () => void }) {
+function ChannelCard({ channel, setting, configured, onSaved, invite }:
+  { channel: SendChannel; setting: ChannelSetting; configured: boolean; onSaved: () => void; invite: string | null }) {
   const [address, setAddress] = useState(setting.default ? "" : setting.address ?? "");
   const [error, setError] = useState<unknown>(null);
   const [note, setNote] = useState("");
@@ -106,6 +107,15 @@ function ChannelCard({ channel, setting, configured, onSaved }:
     e.preventDefault();
     setError(null); setNote("");
     try { await api.setChannel(channel, address.trim() || null); setNote("Saved."); onSaved(); } catch (err) { setError(err); }
+  }
+  async function ask() {
+    setError(null); setNote("");
+    try {
+      const r = await api.requestDiscord();
+      setNote(`Asked — ${r.asked === 1 ? "the admin has" : `${r.asked} admins have`} it in their inbox.`);
+    } catch (err) {
+      setError(err);
+    }
   }
   async function test() {
     setError(null);
@@ -128,6 +138,12 @@ function ChannelCard({ channel, setting, configured, onSaved }:
           <span className="muted">Discord → Settings → Advanced → Developer Mode on; then right-click your name → Copy User ID.
             You need to be in a server with the Choreboard bot.</span>
         </label>
+      )}
+      {channel === "discord" && configured && (
+        <div className="actions" aria-label="Join the Discord server">
+          {invite && <a className="button ghost" href={invite} target="_blank" rel="noreferrer">Join the server</a>}
+          <button type="button" className="ghost" onClick={ask}>Ask an admin to add me</button>
+        </div>
       )}
       <ErrorNote error={error} />
       {note && <p className="muted" role="status">{note}</p>}

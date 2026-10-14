@@ -126,6 +126,7 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     }
     if (p === "/api/notifications/catalog") {
       return json(200, {
+        discord_invite: (s as any).invite ?? null,
         events: [{ kind: "swapped", label: "Someone swapped a chore with me", scope: "mine" },
                  { kind: "missed", label: "My chore was marked missed", scope: "mine" },
                  { kind: "new_chore", label: "A new chore was added", scope: "household" }],
@@ -134,6 +135,7 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     }
     if (p === "/api/me/notifications") return json(200, { channels: s.channels, subscriptions: s.subs });
     if (p === "/api/me/deliveries") return json(200, []);
+    if (p === "/api/me/discord/request" && method === "POST") return json(201, { asked: 2, invite: null });
     if (p === "/api/settings" && method === "GET") return json(200, s.settings);
     if (p === "/api/tokens" && method === "GET") return json(200, s.tokens);
     if (p === "/api/tokens" && method === "POST") {
