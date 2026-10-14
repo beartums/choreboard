@@ -315,3 +315,21 @@ def test_discord_errors_in_words():
     assert "token is wrong" in notify.discord_reason(401, '{"message": "401: Unauthorized", "code": 0}')
     assert "HTML page" in notify.discord_reason(403, "<!DOCTYPE html><title>Access denied</title>")
     assert notify.discord_reason(500, '{"message": "boom"}').startswith("Discord 500: {")
+
+
+def test_discord_refusals_fail_at_once_rate_limits_retry(monkeypatch):
+    import io
+    import urllib.error
+
+    def refuse(status, body):
+        def fake(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, status, "x", {}, io.BytesIO(body))
+        return fake
+    d = {"id": 1, "channel": "discord", "address": "123456789012345678", "title": "t", "body": "b", "attempts": 0}
+    monkeypatch.setattr(notify.urllib.request, "urlopen",
+                        refuse(403, b'{"message": "no mutual guilds", "code": 50278}'))
+    err, retry = notify.send_one(d, {"discord": notify.DiscordSender("tok")})
+    assert retry is False and "invite it to a server" in err
+    monkeypatch.setattr(notify.urllib.request, "urlopen", refuse(429, b'{"message": "rate limited", "retry_after": 1}'))
+    err, retry = notify.send_one(d, {"discord": notify.DiscordSender("tok")})
+    assert retry is True

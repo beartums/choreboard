@@ -128,6 +128,10 @@ class NotConfigured(Exception):
     """A channel the server has no credentials for: fail now, don't retry."""
 
 
+class Permanent(Exception):
+    """A refusal retrying can't fix (e.g. Discord's 4xx): fail now, with why."""
+
+
 @dataclass
 class SmtpSender:
     host: str
@@ -170,7 +174,10 @@ class DiscordSender:
                 return json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
             raw = e.read()[:400].decode(errors="replace")
-            raise RuntimeError(discord_reason(e.code, raw)) from None
+            # 4xx is Discord saying no (bad token, can't DM, unknown user):
+            # retrying won't change it. 429 (rate limit) and 5xx can pass.
+            err = Permanent if 400 <= e.code < 500 and e.code != 429 else RuntimeError
+            raise err(discord_reason(e.code, raw)) from None
 
     def send(self, address: str, title: str, body: str) -> None:
         dm = self._call("POST", "/users/@me/channels", {"recipient_id": address})
@@ -181,6 +188,8 @@ class DiscordSender:
 DISCORD_CODES = {
     50007: "Discord won't let the bot DM this person: the bot must share a server with them, and their privacy "
            "settings for that server must allow direct messages from members",
+    50278: "the bot isn't in any server with this person -- invite it to a server they're in "
+           "(Developer Portal -> OAuth2 -> URL Generator -> scope 'bot')",
     10013: "Discord doesn't know that user id -- check it (Developer Mode -> Copy User ID)",
     50035: "Discord rejected the request as invalid -- check the user id is the numeric id, not a username",
     40333: "Discord refused the request before the API (an internal or Cloudflare block)",
@@ -239,7 +248,7 @@ def send_one(d: dict[str, Any], senders: dict[str, Sender], link: str = "") -> t
     try:
         sender.send(d["address"], d["title"], body)
         return None, True
-    except NotConfigured as e:
+    except (NotConfigured, Permanent) as e:
         return str(e), False
     except Exception as e:  # noqa: BLE001 -- the reason is recorded; transient ones retry
         log.warning("delivery %s via %s failed: %s", d["id"], d["channel"], e)
