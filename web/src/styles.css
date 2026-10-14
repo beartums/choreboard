@@ -130,3 +130,12 @@ section.wide { margin: 0 calc(50% - min(50vw, 640px)); }
 
 fieldset { border: 1px solid var(--line); border-radius: 8px; padding: .5rem .75rem .75rem; margin: 0; }
 legend { font-size: .8rem; color: var(--muted); padding: 0 .3rem; }
+
+.subs { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.subs th, .subs td { padding: .5rem .75rem; border-bottom: 1px solid var(--line); text-align: left; }
+.subs th:not(:first-child), .subs td:not(:first-child) { text-align: center; width: 6rem; }
+.subs tr:last-child td { border-bottom: 0; }
+.card h3 { margin: 0; }
+.badge.st-sent { background: color-mix(in srgb, #3f9b5a 20%, transparent); color: #3f9b5a; }
+.badge.st-failed { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+@media (max-width: 560px) { .top nav { overflow-x: auto; } }

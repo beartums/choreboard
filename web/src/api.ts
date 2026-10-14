@@ -82,6 +82,40 @@ export interface LedgerEntry {
   created_at: string;
 }
 
+export type Channel = "email" | "discord";
+
+export interface Catalog {
+  events: { kind: string; label: string; scope: "mine" | "household" }[];
+  channels: { channel: Channel; configured: boolean }[];
+}
+
+export interface Subscription {
+  id: number;
+  event: string;
+  channel: Channel;
+  chore_id: number | null;
+}
+
+export interface ChannelSetting {
+  address: string | null;
+  enabled: boolean;
+  default: boolean;
+}
+
+export interface Delivery {
+  id: number;
+  channel: Channel;
+  address: string;
+  status: "queued" | "sending" | "sent" | "failed";
+  attempts: number;
+  last_error: string | null;
+  sent_at: string | null;
+  kind: string;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
 export interface Me {
   email: string;
   person: Person | null;
@@ -148,6 +182,17 @@ export const api = {
     call<{ person_id: number; balance: number; entries: LedgerEntry[] }>("GET", `/api/people/${personId}/points?limit=20`),
   adjust: (person_id: number, delta: number, note: string) =>
     call<LedgerEntry>("POST", "/api/ledger", { person_id, delta, note }),
+
+  catalog: () => call<Catalog>("GET", "/api/notifications/catalog"),
+  myNotifications: () =>
+    call<{ channels: Record<Channel, ChannelSetting>; subscriptions: Subscription[] }>("GET", "/api/me/notifications"),
+  setChannel: (channel: Channel, address: string | null) =>
+    call<Record<Channel, ChannelSetting>>("PUT", `/api/me/channels/${channel}`, { address, enabled: true }),
+  testChannel: (channel: Channel) => call<{ status: string }>("POST", `/api/me/channels/${channel}/test`),
+  subscribe: (event: string, channel: Channel, chore_id: number | null = null) =>
+    call<Subscription>("POST", "/api/me/subscriptions", { event, channel, chore_id }),
+  unsubscribe: (id: number) => call<void>("DELETE", `/api/me/subscriptions/${id}`),
+  deliveries: () => call<Delivery[]>("GET", "/api/me/deliveries?limit=30"),
 
   rules: (choreId?: number) => call<Rule[]>("GET", choreId ? `/api/rules?chore_id=${choreId}` : "/api/rules"),
   createRule: (r: RuleInput) => call<Rule>("POST", "/api/rules", r),

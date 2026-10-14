@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import logging
 import secrets
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from . import policy
+from . import notify, policy
 from .calendar import Occurrence, OccurrenceKey, Override, Pattern, Rule, calendar, plan_swap
 
+log = logging.getLogger("choreboard.service")
 SCOPES = ("read", "write", "act_as")
 TOKEN_PREFIX = "cb_"
 STATUSES = ("done", "skipped", "failed", "covered", "failed_covered")
@@ -126,6 +128,36 @@ class Service:
             raise NotFound(f"no chore {cid}")
         return dict(row)
 
+    # --- notifications: what happened, in words ---------------------------
+
+    def _name(self, pid: int | None) -> str:
+        if pid is None:
+            return "Someone"
+        row = self._one("SELECT name FROM people WHERE id = ?", pid)
+        return row["name"] if row else f"#{pid}"
+
+    def _what(self, chore_id: int, date: dt.date, available: dt.time | None = None,
+              due: dt.time | None = None) -> str:
+        """'🐕 Walk the dog on Wed Oct 21, 4-6 PM'."""
+        c = self._one("SELECT title, icon FROM chores WHERE id = ?", chore_id)
+        title = f"{c['icon'] + ' ' if c and c['icon'] else ''}{c['title'] if c else 'a chore'}"
+        when = date.strftime("%a %b %-d")
+        fmt = lambda t: t.strftime("%-I:%M %p").replace(":00 ", " ")  # noqa: E731
+        window = (f", {fmt(available)}–{fmt(due)}" if available and due else f", after {fmt(available)}" if available
+                  else f", by {fmt(due)}" if due else "")
+        return f"{title} on {when}{window}"
+
+    def _emit(self, kind: str, actor: dict[str, Any] | None, subjects: list[int] | None, title: str, body: str,
+              chore_id: int | None = None, date: dt.date | None = None) -> None:
+        """Tell whoever wants to know. Never fails the action that caused it:
+        the change has happened, and a broken notification must not undo it."""
+        try:
+            with self._tx():
+                notify.emit(self.db, kind, actor_id=(actor or {}).get("id"), subjects=subjects, title=title,
+                            body=body, chore_id=chore_id, date=date)
+        except Exception:  # noqa: BLE001
+            log.exception("couldn't record a %s notification", kind)
+
     # --- people and chores --------------------------------------------------
 
     def create_person(self, actor: dict[str, Any] | None, name: str, *, email: str | None = None,
@@ -195,7 +227,11 @@ class Service:
             raise Invalid("points can't be negative")
         cur = self.db.execute("INSERT INTO chores (title, points, description, icon) VALUES (?, ?, ?, ?)",
                               (title.strip(), points, description, icon))
-        return self._chore(cur.lastrowid)
+        chore = self._chore(cur.lastrowid)
+        self._emit("new_chore", actor, None, f"New chore: {(icon + ' ') if icon else ''}{chore['title']}",
+                   f"{self._name((actor or {}).get('id'))} added {(icon + ' ') if icon else ''}{chore['title']}"
+                   f" ({points} point{'' if points == 1 else 's'}).", chore_id=chore["id"])
+        return chore
 
     def update_chore(self, actor: dict[str, Any] | None, cid: int, **fields: Any) -> dict[str, Any]:
         """Change title, description, icon, points or active. Points already
@@ -265,7 +301,9 @@ class Service:
         cur = self.db.execute(
             "INSERT INTO rules (chore_id, person_id, weekdays, every_days, anchor, on_date, due, start_date, end_date,"
             " available) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", vals)
-        return self.rule(cur.lastrowid)
+        rule = self.rule(cur.lastrowid)
+        self._schedule_note(actor, [rule.person_id], rule.chore_id, "added you to")
+        return rule
 
     def update_rule(self, actor: dict[str, Any] | None, rid: int, chore_id: int, person_id: int,
                     pattern: Pattern, *, due: dt.time | None = None, start: dt.date | None = None,
@@ -273,20 +311,30 @@ class Service:
         """Edit in place. Past outcomes are keyed by occurrence and keep their
         own assignee, so nothing recorded changes."""
         self._check(actor, "rules.write")
-        self.rule(rid)
+        before = self.rule(rid)
         vals = self._rule_values(chore_id, person_id, pattern, due, start, end, available)
         self.db.execute(
             "UPDATE rules SET chore_id = ?, person_id = ?, weekdays = ?, every_days = ?, anchor = ?, on_date = ?,"
             " due = ?, start_date = ?, end_date = ?, available = ?,"
             " updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
             " WHERE id = ?", (*vals, rid))
-        return self.rule(rid)
+        after = self.rule(rid)
+        if after != before:
+            self._schedule_note(actor, [before.person_id, after.person_id], after.chore_id, "changed your schedule for")
+        return after
 
     def delete_rule(self, actor: dict[str, Any] | None, rid: int) -> None:
         """Its overrides go with it; its outcomes and points stay."""
         self._check(actor, "rules.write")
-        self.rule(rid)
+        rule = self.rule(rid)
         self.db.execute("DELETE FROM rules WHERE id = ?", (rid,))
+        self._schedule_note(actor, [rule.person_id], rule.chore_id, "took you off")
+
+    def _schedule_note(self, actor: dict[str, Any] | None, people: list[int], chore_id: int, verb: str) -> None:
+        c = self._one("SELECT title, icon FROM chores WHERE id = ?", chore_id)
+        title = f"{(c['icon'] + ' ') if c and c['icon'] else ''}{c['title'] if c else 'a chore'}"
+        self._emit("schedule", actor, people, f"Schedule changed: {title}",
+                   f"{self._name((actor or {}).get('id'))} {verb} the schedule for {title}.", chore_id=chore_id)
 
     # --- the calendar -------------------------------------------------------
 
@@ -364,6 +412,13 @@ class Service:
         with self._tx():
             self._insert_override(Override(0, occ.chore_id, occ.date, "reassign", rule_id=occ.rule_id,
                                            person_id=person_id, reason=reason), actor)
+        what, by = self._what(occ.chore_id, occ.date, occ.available, occ.due), self._name((actor or {}).get("id"))
+        why = f" Reason: {reason}" if reason else ""
+        if occ.person_id != person_id:
+            self._emit("assigned", actor, [person_id], f"You've been given {what}",
+                       f"{by} gave you {what} (was {self._name(occ.person_id)}'s).{why}", occ.chore_id, occ.date)
+            self._emit("unassigned", actor, [occ.person_id], f"{what} is no longer yours",
+                       f"{by} gave your {what} to {self._name(person_id)}.{why}", occ.chore_id, occ.date)
         return self.occurrence(key)
 
     def skip(self, actor: dict[str, Any] | None, key: OccurrenceKey, reason: str) -> Occurrence:
@@ -377,6 +432,10 @@ class Service:
         with self._tx():
             self._insert_override(Override(0, occ.chore_id, occ.date, "skip", rule_id=occ.rule_id,
                                            reason=reason), actor)
+        what = self._what(occ.chore_id, occ.date, occ.available, occ.due)
+        self._emit("excused", actor, [occ.person_id], f"Skipped: {what}",
+                   f"{self._name((actor or {}).get('id'))} skipped your {what}." + (f" Reason: {reason}" if reason else ""),
+                   occ.chore_id, occ.date)
         return self.occurrence(key, include_skipped=True)
 
     def add(self, actor: dict[str, Any] | None, chore_id: int, date: dt.date, person_id: int,
@@ -391,6 +450,10 @@ class Service:
             raise Invalid(str(e)) from None
         with self._tx():
             oid = self._insert_override(o, actor)
+        what = self._what(chore_id, date, available, due)
+        self._emit("assigned", actor, [person_id], f"Extra chore: {what}",
+                   f"{self._name((actor or {}).get('id'))} added {what} for you." + (f" Reason: {reason}" if reason else ""),
+                   chore_id, date)
         return self.occurrence((chore_id, date, "add", oid))
 
     def swap(self, actor: dict[str, Any] | None, a: OccurrenceKey, b: OccurrenceKey, reason: str) -> str:
@@ -413,6 +476,17 @@ class Service:
         with self._tx():
             self._insert_override(plan.a, actor)
             self._insert_override(plan.b, actor)
+        by = self._name((actor or {}).get("id"))
+        wa = self._what(occ_a.chore_id, occ_a.date, occ_a.available, occ_a.due)
+        wb = self._what(occ_b.chore_id, occ_b.date, occ_b.available, occ_b.due)
+        actor_id = (actor or {}).get("id")
+        for me, mine, theirs, other in ((occ_a.person_id, wa, wb, occ_b.person_id), (occ_b.person_id, wb, wa, occ_a.person_id)):
+            who = self._name(other)
+            head = (f"{who} swapped with you" if actor_id == other
+                    else f"{by} swapped your {mine} with {who}'s")
+            self._emit("swapped", actor, [me], f"Swapped: you now do {theirs}",
+                       f"{head}: you now do {theirs}; {who} does your {mine}. Reason: {reason.strip()}",
+                       occ_a.chore_id, occ_a.date)
         return group
 
     def remove_override_group(self, actor: dict[str, Any] | None, group_or_id: str) -> int:
@@ -425,12 +499,25 @@ class Service:
             rows = self._all("SELECT * FROM overrides WHERE group_id = ?", group_or_id)
         if not rows:
             raise NotFound(f"no override {group_or_id}")
+        affected: set[int] = set()
+        notes = []
         for r in rows:
             o = self._override(r)
             key = (o.chore_id, o.date, "add", o.id) if o.kind == "add" else (o.chore_id, o.date, "rule", o.rule_id)
             self._unrecorded(key)  # type: ignore[arg-type]
+            if o.person_id:
+                affected.add(o.person_id)
+            if o.rule_id:
+                rr = self._one("SELECT person_id FROM rules WHERE id = ?", o.rule_id)
+                if rr:
+                    affected.add(rr["person_id"])
+            notes.append(self._what(o.chore_id, o.date, o.available, o.due))
         with self._tx():
             self.db.executemany("DELETE FROM overrides WHERE id = ?", [(r["id"],) for r in rows])
+        kind = "swap" if not group_or_id.isdigit() else "change"
+        self._emit("undone", actor, sorted(affected), f"Undone: a {kind}",
+                   f"{self._name((actor or {}).get('id'))} undid a {kind}: {'; '.join(notes)} — back to the schedule.",
+                   rows[0]["chore_id"], dt.date.fromisoformat(rows[0]["date"]))
         return len(rows)
 
     # --- outcomes and the ledger --------------------------------------------
@@ -481,7 +568,27 @@ class Service:
                 self._ledger(done_by, chore["points"], "earned", label + (f": {note}" if note else ""), oid, by)
             if status in DEDUCTS and deduct:
                 self._ledger(assignee, -deduct, "deduction", f"{label}: {note}", oid, by)
+        self._outcome_note(actor, occ, status, assignee, done_by, deduct, note)
         return self.outcome(oid)
+
+    def _outcome_note(self, actor: dict[str, Any] | None, occ: Occurrence, status: str, assignee: int,
+                      done_by: int | None, deduct: int | None, note: str) -> None:
+        what, by = self._what(occ.chore_id, occ.date, occ.available, occ.due), self._name((actor or {}).get("id"))
+        why = f" Reason: {note}" if note else ""
+        pts = f" −{deduct} point{'' if deduct == 1 else 's'}." if deduct else ""
+        if status == "done":
+            self._emit("done_by_other", actor, [assignee], f"Marked done: {what}", f"{by} marked your {what} done.",
+                       occ.chore_id, occ.date)
+        elif status == "skipped":
+            self._emit("excused", actor, [assignee], f"Excused: {what}", f"{by} marked your {what} as not needed.{why}",
+                       occ.chore_id, occ.date)
+        elif status == "covered":
+            self._emit("covered", actor, [assignee], f"Covered: {what}",
+                       f"{self._name(done_by)} did your {what} (recorded by {by}).{why}", occ.chore_id, occ.date)
+        else:                                            # failed, failed_covered
+            cover = f" {self._name(done_by)} covered it." if status == "failed_covered" else ""
+            self._emit("missed", actor, [assignee], f"Missed: {what}",
+                       f"{by} marked your {what} as missed.{cover}{pts}{why}", occ.chore_id, occ.date)
 
     def outcome(self, oid: int) -> dict[str, Any]:
         row = self._one("SELECT * FROM outcomes WHERE id = ?", oid)
@@ -506,6 +613,12 @@ class Service:
             for e in self._all("SELECT * FROM ledger WHERE outcome_id = ? AND kind != 'reversal'", oid):
                 self._ledger(e["person_id"], -e["delta"], "reversal", f"undo: {note.strip()}", oid, by,
                              reverses=e["id"])
+        date = dt.date.fromisoformat(out["date"])
+        what = self._what(out["chore_id"], date)
+        people = [p for p in (out["assignee_id"], out["done_by_id"]) if p is not None]
+        self._emit("undone", actor, people, f"Undone: {what} ({out['status'].replace('_', ' ')})",
+                   f"{self._name(by)} undid what was recorded for {what}: {note.strip()}. Any points from it are reversed.",
+                   out["chore_id"], date)
         return self.outcome(oid)
 
     def adjust(self, actor: dict[str, Any] | None, person_id: int, delta: int, note: str) -> dict[str, Any]:
@@ -518,6 +631,9 @@ class Service:
             raise Invalid("an adjustment needs a note saying why")
         with self._tx():
             lid = self._ledger(person_id, delta, "adjustment", note.strip(), None, (actor or {}).get("id"))
+        self._emit("points", actor, [person_id], f"Points {'+' if delta > 0 else '−'}{abs(delta)}",
+                   f"{self._name((actor or {}).get('id'))} {'gave you' if delta > 0 else 'took'} {abs(delta)} point"
+                   f"{'' if abs(delta) == 1 else 's'}: {note.strip()}.")
         return dict(self._one("SELECT * FROM ledger WHERE id = ?", lid))
 
     def _ledger(self, person_id: int | None, delta: int, kind: str, note: str, outcome_id: int | None,
@@ -537,6 +653,96 @@ class Service:
         return [dict(r) for r in self._all(
             "SELECT * FROM ledger WHERE person_id = ? ORDER BY id DESC LIMIT ?", person_id, limit)]
 
+
+    # --- notification settings ------------------------------------------------
+
+    def subscriptions(self, person_id: int) -> list[dict[str, Any]]:
+        self._person(person_id)
+        return [dict(r) for r in self._all(
+            "SELECT id, event, channel, chore_id FROM subscriptions WHERE person_id = ? ORDER BY event, channel, chore_id",
+            person_id)]
+
+    def subscribe(self, actor: dict[str, Any] | None, person_id: int, event: str, channel: str,
+                  chore_id: int | None = None) -> dict[str, Any]:
+        """Turn one notification on. Idempotent."""
+        self._check(actor, "notifications.write", person_id=person_id)
+        self._person(person_id)
+        if event not in notify.EVENTS:
+            raise Invalid(f"event is one of {', '.join(notify.EVENTS)}")
+        if channel not in notify.CHANNELS:
+            raise Invalid(f"channel is one of {', '.join(notify.CHANNELS)}")
+        if chore_id is not None:
+            if notify.EVENTS[event][1] == "household":
+                raise Invalid(f"'{event}' is about the whole household, not one chore")
+            self._chore(chore_id)
+        self.db.execute("INSERT OR IGNORE INTO subscriptions (person_id, event, channel, chore_id) VALUES (?, ?, ?, ?)",
+                        (person_id, event, channel, chore_id))
+        row = self._one("SELECT id, event, channel, chore_id FROM subscriptions WHERE person_id = ? AND event = ?"
+                        " AND channel = ? AND COALESCE(chore_id, 0) = COALESCE(?, 0)", person_id, event, channel, chore_id)
+        return dict(row)
+
+    def unsubscribe(self, actor: dict[str, Any] | None, person_id: int, sub_id: int) -> None:
+        self._check(actor, "notifications.write", person_id=person_id)
+        if not self.db.execute("DELETE FROM subscriptions WHERE id = ? AND person_id = ?", (sub_id, person_id)).rowcount:
+            raise NotFound(f"no subscription {sub_id}")
+
+    def channels(self, person_id: int) -> dict[str, dict[str, Any]]:
+        """Each channel's address for a person, and whether it's their own
+        setting or the default (email: their sign-in address)."""
+        p = self._person(person_id)
+        rows = {r["channel"]: dict(r) for r in self._all(
+            "SELECT channel, address, enabled FROM person_channels WHERE person_id = ?", person_id)}
+        out = {}
+        for ch in notify.CHANNELS:
+            if ch in rows:
+                out[ch] = {"address": rows[ch]["address"], "enabled": bool(rows[ch]["enabled"]), "default": False}
+            else:
+                out[ch] = {"address": p["email"] if ch == "email" else None, "enabled": ch == "email" and bool(p["email"]),
+                           "default": True}
+        return out
+
+    def set_channel(self, actor: dict[str, Any] | None, person_id: int, channel: str, address: str | None,
+                    enabled: bool = True) -> dict[str, dict[str, Any]]:
+        """Set where a person gets a channel; address None clears it (email
+        falls back to the sign-in address)."""
+        self._check(actor, "notifications.write", person_id=person_id)
+        self._person(person_id)
+        if channel not in notify.CHANNELS:
+            raise Invalid(f"channel is one of {', '.join(notify.CHANNELS)}")
+        address = (address or "").strip()
+        if not address:
+            self.db.execute("DELETE FROM person_channels WHERE person_id = ? AND channel = ?", (person_id, channel))
+            return self.channels(person_id)
+        if channel == "email" and ("@" not in address or " " in address):
+            raise Invalid("that doesn't look like an email address")
+        if channel == "discord" and not (address.isdigit() and 15 <= len(address) <= 21):
+            raise Invalid("a Discord user id is a 17-20 digit number (Developer Mode → Copy User ID), not a username")
+        self.db.execute("INSERT INTO person_channels (person_id, channel, address, enabled) VALUES (?, ?, ?, ?)"
+                        " ON CONFLICT (person_id, channel) DO UPDATE SET address = excluded.address,"
+                        " enabled = excluded.enabled", (person_id, channel, address, 1 if enabled else 0))
+        return self.channels(person_id)
+
+    def deliveries(self, person_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        """Recent notifications for a person, with each one's outcome."""
+        self._person(person_id)
+        return [dict(r) for r in self._all(
+            "SELECT d.id, d.channel, d.address, d.status, d.attempts, d.last_error, d.sent_at, e.kind, e.title,"
+            " e.body, e.created_at FROM deliveries d JOIN events e ON e.id = d.event_id"
+            " WHERE d.person_id = ? ORDER BY d.id DESC LIMIT ?", person_id, limit)]
+
+    def test_notification(self, actor: dict[str, Any] | None, person_id: int, channel: str) -> int:
+        """Queue a test message to one of a person's channels."""
+        self._check(actor, "notifications.write", person_id=person_id)
+        if channel not in notify.CHANNELS:
+            raise Invalid(f"channel is one of {', '.join(notify.CHANNELS)}")
+        address = notify.address_of(self.db, person_id, channel)
+        with self._tx():
+            cur = self.db.execute("INSERT INTO events (kind, actor_id, title, body) VALUES ('points', NULL, ?, ?)",
+                                  ("Choreboard test", "This is a test notification. If you can read it, it works."))
+            self.db.execute("INSERT INTO deliveries (event_id, person_id, channel, address, status, next_at)"
+                            " VALUES (?, ?, ?, ?, 'queued', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+                            (cur.lastrowid, person_id, channel, address or ""))
+        return int(cur.lastrowid)
 
     # --- API tokens -----------------------------------------------------------
 

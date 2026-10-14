@@ -236,3 +236,42 @@ def test_clock_skew_is_tolerated_but_not_forever(client, home):
 
 def test_health_is_reachable_under_api(client):
     assert client.get("/api/health").json()["status"] == "ok"
+
+
+def test_notifications_over_http(home):
+    """Subscribe, act, and the worker delivers -- through the API."""
+    import asyncio
+    from choreboard import notify as _n
+
+    class Fake:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, address, title, body):
+            self.sent.append((address, title, body))
+
+    email = Fake()
+    app = create_app(Settings(db_path=":memory:", audience=AUD),
+                     verifier=PomeriumVerifier("", AUD, keys=lambda _t: KEY.public_key()),
+                     conn=schema.connect(":memory:"), senders={"email": email})
+    c = TestClient(app)
+    E, T = as_("eric@example.com"), as_("tucker@example.com", "Tucker")
+    c.post("/api/setup", json={"name": "Eric"}, headers=E)
+    tid = c.get("/api/me", headers=T).json()["person"]["id"]
+    cat = c.get("/api/notifications/catalog", headers=T).json()
+    assert {"channel": "email", "configured": True} in cat["channels"]
+    assert {"channel": "discord", "configured": False} in cat["channels"]
+    assert any(e["kind"] == "swapped" for e in cat["events"])
+
+    assert c.post("/api/me/subscriptions", json={"event": "points", "channel": "email"}, headers=T).status_code == 201
+    assert c.post("/api/me/subscriptions", json={"event": "nope", "channel": "email"}, headers=T).status_code == 400
+    assert c.put("/api/me/channels/discord", json={"address": "bob"}, headers=T).status_code == 400
+    c.post("/api/ledger", json={"person_id": tid, "delta": 2, "note": "helping"}, headers=E)
+    assert asyncio.run(app.state.deliver_now()) == 1
+    assert email.sent == [("tucker@example.com", "Points +2", "Eric gave you 2 points: helping.")]
+    log = c.get("/api/me/deliveries", headers=T).json()
+    assert log[0]["status"] == "sent" and log[0]["kind"] == "points"
+    assert c.post("/api/me/channels/email/test", headers=T).status_code == 202
+    asyncio.run(app.state.deliver_now())
+    assert email.sent[-1][1] == "Choreboard test"
+    _ = _n

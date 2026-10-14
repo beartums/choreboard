@@ -153,3 +153,13 @@ Out of the first version: rewards, streaks, photos, notifications.
   whose day the rules no longer produce -- the rule was edited, deleted, or
   now begins later -- is still returned, flagged `unscheduled`, with its
   assignee, and can be undone. Otherwise points would appear from nowhere.
+- **Notifications** (v0.5.0, `notify.py`): every change emits an event naming
+  who it's about; each person subscribes per event and channel, for all their
+  chores or one chore ("new chore" is household-wide). Nobody hears about
+  their own actions. Deliveries go through an outbox the worker sends outside
+  the request lock, with backoff (1 m, 5 m, 30 m, 2 h) then `failed`; every
+  attempt's error is kept and shown. A notification failing never fails the
+  action. Email: SMTP (Gmail app password). Discord: a bot that DMs a numeric
+  user id. WhatsApp deferred: Meta's Business Platform needs pre-approved
+  templates and per-message fees; unofficial clients get numbers banned.
+  Reminders (before due / overdue) deferred.

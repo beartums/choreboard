@@ -40,6 +40,10 @@ npm run build      # into choreboard/static, which the API serves at /
 | `CHOREBOARD_AUDIENCE` | — | the route's host; the assertion's `aud` must match |
 | `CHOREBOARD_AUTO_JOIN` | `1` | a signed-in stranger joins as a member |
 | `CHOREBOARD_DEV_EMAIL` | — | **development only**: trust this identity with no sign-in |
+| `CHOREBOARD_PUBLIC_URL` | — | linked at the end of every notification |
+| `CHOREBOARD_SMTP_USER` / `_PASSWORD` | — | email notifications (Gmail: an app password) |
+| `CHOREBOARD_SMTP_HOST` / `_PORT` / `_FROM` | `smtp.gmail.com` / `587` / `Choreboard <user>` | |
+| `CHOREBOARD_DISCORD_TOKEN` | — | Discord notifications: a bot token; the bot DMs people |
 
 API tokens: `POST /api/tokens` (signed in as a person) returns a `cb_…` token
 once. Send it as `Authorization: Bearer`. Scopes: `read`, `write`, and

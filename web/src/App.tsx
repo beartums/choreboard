@@ -5,6 +5,7 @@ import { ErrorNote } from "./components/ErrorNote";
 import { CalendarPage } from "./pages/CalendarPage";
 import { ChoreDetail } from "./pages/ChoreDetail";
 import { ChoresPage } from "./pages/ChoresPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { SetupPage } from "./pages/SetupPage";
 
@@ -29,6 +30,7 @@ export function App() {
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/chores">Chores</NavLink>
           <NavLink to="/people">People</NavLink>
+          <NavLink to="/notifications">Notifications</NavLink>
         </nav>
         <span className="who" title={me.email}>{me.person?.name}</span>
       </header>
@@ -39,6 +41,7 @@ export function App() {
           <Route path="/chores" element={<ChoresPage />} />
           <Route path="/chores/:id" element={<ChoreDetail />} />
           <Route path="/people" element={<PeoplePage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="*" element={<p>Nothing here. <NavLink to="/chores">Chores</NavLink></p>} />
         </Routes>
       </main>

@@ -120,6 +120,57 @@ MIGRATIONS: list[str] = [
     ALTER TABLE rules ADD COLUMN available TEXT;
     ALTER TABLE overrides ADD COLUMN available TEXT;
     """,
+    # 4: notifications (notify.py) -- an event log, who wants what, where, and
+    # an outbox with every delivery attempt's result.
+    """
+    CREATE TABLE events (
+        id          INTEGER PRIMARY KEY,
+        kind        TEXT NOT NULL,
+        actor_id    INTEGER REFERENCES people(id),
+        chore_id    INTEGER REFERENCES chores(id),
+        date        TEXT,
+        title       TEXT NOT NULL,
+        body        TEXT NOT NULL,
+        payload     TEXT NOT NULL DEFAULT '{}',
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+    CREATE INDEX events_created ON events(created_at);
+
+    -- chore_id NULL: all of my chores (or, for household events, everything).
+    CREATE TABLE subscriptions (
+        id          INTEGER PRIMARY KEY,
+        person_id   INTEGER NOT NULL REFERENCES people(id),
+        event       TEXT NOT NULL,
+        channel     TEXT NOT NULL CHECK (channel IN ('email', 'discord')),
+        chore_id    INTEGER REFERENCES chores(id),
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+    CREATE UNIQUE INDEX subscriptions_one ON subscriptions(person_id, event, channel, COALESCE(chore_id, 0));
+
+    -- Where a person gets each channel. No email row = their sign-in email.
+    CREATE TABLE person_channels (
+        person_id   INTEGER NOT NULL REFERENCES people(id),
+        channel     TEXT NOT NULL CHECK (channel IN ('email', 'discord')),
+        address     TEXT NOT NULL,
+        enabled     INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (person_id, channel)
+    );
+
+    CREATE TABLE deliveries (
+        id          INTEGER PRIMARY KEY,
+        event_id    INTEGER NOT NULL REFERENCES events(id),
+        person_id   INTEGER NOT NULL REFERENCES people(id),
+        channel     TEXT NOT NULL,
+        address     TEXT NOT NULL,
+        status      TEXT NOT NULL CHECK (status IN ('queued', 'sending', 'sent', 'failed')),
+        attempts    INTEGER NOT NULL DEFAULT 0,
+        next_at     TEXT NOT NULL,
+        last_error  TEXT,
+        sent_at     TEXT
+    );
+    CREATE INDEX deliveries_due ON deliveries(status, next_at);
+    CREATE INDEX deliveries_person ON deliveries(person_id);
+    """,
 ]
 
 

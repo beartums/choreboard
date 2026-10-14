@@ -10,6 +10,9 @@ export interface FakeState {
   rules: Rule[];
   entries: Entry[];
   balances: Record<number, number>;
+  subs: { id: number; event: string; channel: string; chore_id: number | null }[];
+  channels: Record<string, { address: string | null; enabled: boolean; default: boolean }>;
+  configured: string[];
   calls: { method: string; path: string; body?: unknown }[];
 }
 
@@ -17,7 +20,10 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
   const eric: Person = { id: 1, name: "Eric", color: "", email: "eric@example.com", role: "admin", active: 1 };
   const s: FakeState = {
     me: { email: "eric@example.com", person: eric, via: "dev", scopes: ["read", "write"], needs_setup: false },
-    people: [eric], chores: [], rules: [], entries: [], balances: {}, calls: [], ...init,
+    people: [eric], chores: [], rules: [], entries: [], balances: {}, subs: [], configured: ["email"],
+    channels: { email: { address: "eric@example.com", enabled: true, default: true },
+                discord: { address: null, enabled: false, default: true } },
+    calls: [], ...init,
   };
   let next = 100;
   const json = (status: number, body: unknown) =>
@@ -109,6 +115,33 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
       for (const x of [a, b2]) Object.assign(x, { group_id: g, source: "override", override_id: next++, reason: body.reason });
       return json(201, { group_id: g, a, b: b2 });
     }
+    if (p === "/api/notifications/catalog") {
+      return json(200, {
+        events: [{ kind: "swapped", label: "Someone swapped a chore with me", scope: "mine" },
+                 { kind: "missed", label: "My chore was marked missed", scope: "mine" },
+                 { kind: "new_chore", label: "A new chore was added", scope: "household" }],
+        channels: ["email", "discord"].map((c) => ({ channel: c, configured: s.configured.includes(c) })),
+      });
+    }
+    if (p === "/api/me/notifications") return json(200, { channels: s.channels, subscriptions: s.subs });
+    if (p === "/api/me/deliveries") return json(200, []);
+    if (p === "/api/me/subscriptions" && method === "POST") {
+      const sub = { id: next++, ...body };
+      s.subs.push(sub);
+      return json(201, sub);
+    }
+    if (p.startsWith("/api/me/subscriptions/") && method === "DELETE") {
+      s.subs = s.subs.filter((x) => x.id !== id);
+      return json(204, null);
+    }
+    const ch = p.match(/^\/api\/me\/channels\/(\w+)(\/test)?$/);
+    if (ch && method === "PUT") {
+      if (ch[1] === "discord" && body.address && !/^\d{15,21}$/.test(body.address))
+        return json(400, { error: "a Discord user id is a 17-20 digit number" });
+      s.channels[ch[1]] = { address: body.address, enabled: true, default: !body.address };
+      return json(200, s.channels);
+    }
+    if (ch && ch[2] && method === "POST") return json(202, { status: "queued" });
     return json(404, { error: `fake: no route ${method} ${p}` });
   });
   return s;

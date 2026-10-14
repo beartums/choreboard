@@ -16,7 +16,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import schema
+from contextlib import asynccontextmanager
+
+from . import notify, schema
 from .auth import Authenticator, Caller, PomeriumVerifier, Settings, Unauthenticated
 from .calendar import Pattern
 from .service import Entry, Error, Invalid, Service, entries_json, parse_key
@@ -127,6 +129,34 @@ class SetupIn(BaseModel):
     name: str
 
 
+class ChannelIn(BaseModel):
+    address: str | None = Field(None, description="email address, or numeric Discord user id; empty clears")
+    enabled: bool = True
+
+
+class SubscriptionIn(BaseModel):
+    event: str
+    channel: Literal["email", "discord"]
+    chore_id: int | None = Field(None, description="one chore; omit for all of my chores")
+
+
+def senders_from_env() -> dict[str, notify.Sender]:
+    """The channels this server can send on, from CHOREBOARD_* env. A
+    channel with no credentials is simply absent (its deliveries fail with
+    "isn't set up on this server")."""
+    out: dict[str, notify.Sender] = {}
+    if os.environ.get("CHOREBOARD_SMTP_USER") and os.environ.get("CHOREBOARD_SMTP_PASSWORD"):
+        user = os.environ["CHOREBOARD_SMTP_USER"]
+        out["email"] = notify.SmtpSender(
+            host=os.environ.get("CHOREBOARD_SMTP_HOST", "smtp.gmail.com"),
+            port=int(os.environ.get("CHOREBOARD_SMTP_PORT", "587")), user=user,
+            password=os.environ["CHOREBOARD_SMTP_PASSWORD"],
+            sender=os.environ.get("CHOREBOARD_SMTP_FROM", f"Choreboard <{user}>"))
+    if os.environ.get("CHOREBOARD_DISCORD_TOKEN"):
+        out["discord"] = notify.DiscordSender(os.environ["CHOREBOARD_DISCORD_TOKEN"])
+    return out
+
+
 def _rule_json(r: Any) -> dict[str, Any]:
     p = r.pattern
     return {"id": r.id, "chore_id": r.chore_id, "person_id": r.person_id,
@@ -140,17 +170,53 @@ def _rule_json(r: Any) -> dict[str, Any]:
 
 
 def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | None = None,
-               conn: Any = None, static_dir: str | None = None) -> FastAPI:
+               conn: Any = None, static_dir: str | None = None,
+               senders: dict[str, notify.Sender] | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     svc = Service(conn if conn is not None else schema.connect(settings.db_path))
     authn = Authenticator(settings, svc, verifier)
-    app = FastAPI(title="choreboard", version="0.1.0",
-                  description="Household chores as a calendar: rules give the defaults, date overrides win.")
+    senders = senders if senders is not None else senders_from_env()
+    link = os.environ.get("CHOREBOARD_PUBLIC_URL", "").rstrip("/")
+    link = f"{link}/calendar" if link else ""
 
     # One SQLite connection, one request at a time. A household makes a few
     # requests a minute; serialising them is simpler than a connection pool
     # and keeps transactions from interleaving on the shared connection.
     lock = asyncio.Lock()
+
+    async def deliver_now() -> int:
+        """One pass of the outbox: claim what's due (under the lock), send it
+        (outside the lock, so a slow mail server never holds up requests),
+        record each result (under the lock)."""
+        async with lock:
+            batch = notify.claim_due(svc.db)
+        for d in batch:
+            err, retry = await asyncio.to_thread(notify.send_one, d, senders, link)
+            async with lock:
+                notify.finish(svc.db, d, err, retry)
+        return len(batch)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> Any:
+        async def worker() -> None:
+            # A delivery left 'sending' by a restart mid-send goes back in the queue.
+            async with lock:
+                svc.db.execute("UPDATE deliveries SET status = 'queued' WHERE status = 'sending'")
+            while True:
+                try:
+                    await deliver_now()
+                except Exception:  # noqa: BLE001 -- keep the worker alive; each delivery logs its own failure
+                    notify.log.exception("notification worker pass failed")
+                await asyncio.sleep(15)
+        task = asyncio.create_task(worker())
+        try:
+            yield
+        finally:
+            task.cancel()
+
+    app = FastAPI(title="choreboard", version="0.1.0", lifespan=lifespan,
+                  description="Household chores as a calendar: rules give the defaults, date overrides win.")
+    app.state.deliver_now = deliver_now
 
     @app.middleware("http")
     async def _one_at_a_time(request: Request, call_next: Any) -> Any:
@@ -313,6 +379,40 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.delete("/api/tokens/{tid}")
     def revoke_token(tid: int, a: dict = Depends(actor)) -> dict[str, Any]:
         return svc.revoke_token(a, tid)
+
+    # --- notifications ---------------------------------------------------------
+
+    @app.get("/api/notifications/catalog")
+    def catalog(_: Caller = Depends(caller)) -> dict[str, Any]:
+        """The events you can subscribe to, and which channels this server
+        can actually send on."""
+        return {"events": [{"kind": k, "label": lbl, "scope": sc} for k, (lbl, sc) in notify.EVENTS.items()],
+                "channels": [{"channel": c, "configured": c in senders} for c in notify.CHANNELS]}
+
+    @app.get("/api/me/notifications")
+    def my_notifications(a: dict = Depends(actor)) -> dict[str, Any]:
+        return {"channels": svc.channels(a["id"]), "subscriptions": svc.subscriptions(a["id"])}
+
+    @app.put("/api/me/channels/{channel}")
+    def set_channel(channel: str, body: ChannelIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.set_channel(a, a["id"], channel, body.address, body.enabled)
+
+    @app.post("/api/me/channels/{channel}/test", status_code=202)
+    def test_channel(channel: str, a: dict = Depends(actor)) -> dict[str, str]:
+        svc.test_notification(a, a["id"], channel)
+        return {"status": "queued; see /api/me/deliveries in a few seconds"}
+
+    @app.post("/api/me/subscriptions", status_code=201)
+    def subscribe(body: SubscriptionIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        return svc.subscribe(a, a["id"], body.event, body.channel, body.chore_id)
+
+    @app.delete("/api/me/subscriptions/{sid}", status_code=204)
+    def unsubscribe(sid: int, a: dict = Depends(actor)) -> None:
+        svc.unsubscribe(a, a["id"], sid)
+
+    @app.get("/api/me/deliveries")
+    def my_deliveries(limit: int = Query(50, ge=1, le=200), a: dict = Depends(actor)) -> list[dict[str, Any]]:
+        return svc.deliveries(a["id"], limit)
 
     # --- the web UI (web/, built into choreboard/static) -------------------------
     # Registered last, so every API route above wins. A browser route such as
