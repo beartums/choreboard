@@ -380,8 +380,9 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     # --- tokens -----------------------------------------------------------------
 
     @app.get("/api/tokens")
-    def tokens(_: dict = Depends(actor)) -> list[dict[str, Any]]:
-        return svc.tokens()
+    def tokens(a: dict = Depends(actor)) -> list[dict[str, Any]]:
+        """Admins only. Never the tokens themselves -- only their first characters."""
+        return svc.tokens(a)
 
     @app.post("/api/tokens", status_code=201)
     def create_token(body: TokenIn, a: dict = Depends(actor), c: Caller = Depends(caller)) -> dict[str, Any]:

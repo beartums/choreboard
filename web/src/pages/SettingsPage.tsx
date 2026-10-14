@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { api, type ServerSettings, type SettingField } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 
@@ -22,7 +23,7 @@ export function SettingsPage() {
   return (
     <section>
       <h1>Settings</h1>
-      <p className="muted">Only admins see this page.</p>
+      <p className="muted">Only admins see this page. <Link to="/settings/tokens">API tokens →</Link></p>
       {!s.can_store_secrets && (
         <p className="note">Passwords and tokens can't be stored yet: the server needs <code>{s.key_env}</code> (at least 32
           characters) to encrypt them. Until then you can set everything else, or the server can provide them itself.</p>

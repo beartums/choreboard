@@ -50,6 +50,6 @@ Notification credentials can come from the environment or be set by an admin
 under **Settings**, where they're stored encrypted with `CHOREBOARD_SECRET_KEY`.
 The environment wins when both are set.
 
-API tokens: `POST /api/tokens` (signed in as a person) returns a `cb_…` token
-once. Send it as `Authorization: Bearer`. Scopes: `read`, `write`, and
+API tokens: **Settings → API tokens** (admins), or `POST /api/tokens` signed in
+as an admin, returns a `cb_…` token once. Send it as `Authorization: Bearer`. Scopes: `read`, `write`, and
 `act_as` (name another person per request with `X-Choreboard-As: <email>`).

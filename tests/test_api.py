@@ -135,6 +135,12 @@ def test_tokens_read_only_and_act_as(client, home):
     ro = client.post("/api/tokens", json={"name": "wall", "scopes": ["read"]}, headers=E).json()
     nav = client.post("/api/tokens", json={"name": "nav", "scopes": ["read", "write", "act_as"]}, headers=E).json()
     assert ro["token"].startswith("cb_") and "token" not in client.get("/api/tokens", headers=E).json()[0]
+    # Members can't mint or list tokens (act_as can act as anyone).
+    T = as_("tucker@example.com")
+    assert client.post("/api/tokens", json={"name": "mine", "scopes": ["read"]}, headers=T).status_code == 403
+    assert client.get("/api/tokens", headers=T).status_code == 403
+    listed = client.get("/api/tokens", headers=E).json()
+    assert listed[0]["name"] == "nav" and listed[0]["person_name"] == "Eric", "newest first, with the owner's name"
 
     R = {"Authorization": f"Bearer {ro['token']}"}
     assert client.get("/api/calendar?from=2026-10-19&to=2026-10-19", headers=R).status_code == 200

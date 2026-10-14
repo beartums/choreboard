@@ -176,3 +176,6 @@ Out of the first version: rewards, streaks, photos, notifications.
   Environment variables still win. Senders are rebuilt from settings on every
   worker pass, so a change applies at once. **First real permission rule:**
   `settings.read`/`settings.write` are admin-only.
+- **Tokens are admin-only** (v0.6.1): a token with `act_as` can act as anyone,
+  so minting, listing and revoking them is `tokens.read`/`tokens.write`,
+  admins only. The Settings → API tokens page shows a new token once.

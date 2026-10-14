@@ -152,3 +152,9 @@ button.plain:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 .settings h2 { margin: 0; }
 .fixed { color: var(--fg); padding: .45rem 0; }
 code { font-size: .9em; background: var(--bg); padding: .05rem .3rem; border-radius: 4px; }
+
+.fresh { border-color: var(--accent); }
+.fresh input { font-family: ui-monospace, monospace; }
+label.check { align-items: flex-start; color: var(--fg); }
+label.check input { margin-top: .2rem; }
+details summary { cursor: pointer; margin-bottom: .5rem; }

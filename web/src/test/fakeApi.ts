@@ -15,6 +15,7 @@ export interface FakeState {
   configured: string[];
   inbox: InboxItem[];
   settings: { can_store_secrets: boolean; key_env: string; fields: any[]; configured: string[] };
+  tokens: any[];
   calls: { method: string; path: string; body?: unknown }[];
 }
 
@@ -22,7 +23,7 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
   const eric: Person = { id: 1, name: "Eric", color: "", email: "eric@example.com", role: "admin", active: 1 };
   const s: FakeState = {
     me: { email: "eric@example.com", person: eric, via: "dev", scopes: ["read", "write"], needs_setup: false },
-    people: [eric], chores: [], rules: [], entries: [], balances: {}, subs: [], configured: ["email"], inbox: [],
+    people: [eric], chores: [], rules: [], entries: [], balances: {}, subs: [], configured: ["email"], inbox: [], tokens: [],
     settings: { can_store_secrets: true, key_env: "CHOREBOARD_SECRET_KEY", configured: [], fields: [
       { key: "smtp.host", label: "SMTP server", secret: false, help: "", source: "default", env: "CHOREBOARD_SMTP_HOST", value: "smtp.gmail.com", default: "smtp.gmail.com" },
       { key: "smtp.user", label: "SMTP user", secret: false, help: "", source: "default", env: "CHOREBOARD_SMTP_USER", value: "", default: "" },
@@ -134,6 +135,19 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     if (p === "/api/me/notifications") return json(200, { channels: s.channels, subscriptions: s.subs });
     if (p === "/api/me/deliveries") return json(200, []);
     if (p === "/api/settings" && method === "GET") return json(200, s.settings);
+    if (p === "/api/tokens" && method === "GET") return json(200, s.tokens);
+    if (p === "/api/tokens" && method === "POST") {
+      const t = { id: next++, name: body.name, prefix: "cb_abcdefg", person_id: body.person_id ?? 1,
+                  person_name: s.people.find((x) => x.id === (body.person_id ?? 1))?.name, scopes: body.scopes,
+                  created_at: "2026-10-14T12:00:00Z", last_used: null, revoked_at: null };
+      s.tokens.unshift(t);
+      return json(201, { ...t, token: "cb_abcdefgSECRET" });
+    }
+    if (p.startsWith("/api/tokens/") && method === "DELETE") {
+      const t = s.tokens.find((x) => x.id === id);
+      t.revoked_at = "2026-10-14T13:00:00Z";
+      return json(200, t);
+    }
     if (p === "/api/settings" && method === "PUT") {
       for (const [k, v] of Object.entries(body.values as Record<string, string | null>)) {
         const f = s.settings.fields.find((x) => x.key === k)!;

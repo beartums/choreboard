@@ -149,6 +149,20 @@ export interface ServerSettings {
   configured: string[];
 }
 
+export type Scope = "read" | "write" | "act_as";
+
+export interface ApiToken {
+  id: number;
+  name: string;
+  prefix: string;
+  person_id: number;
+  person_name: string;
+  scopes: Scope[];
+  created_at: string;
+  last_used: string | null;
+  revoked_at: string | null;
+}
+
 export interface Me {
   email: string;
   person: Person | null;
@@ -232,6 +246,11 @@ export const api = {
 
   settings: () => call<ServerSettings>("GET", "/api/settings"),
   saveSettings: (values: Record<string, string | null>) => call<ServerSettings>("PUT", "/api/settings", { values }),
+
+  tokens: () => call<ApiToken[]>("GET", "/api/tokens"),
+  createToken: (name: string, scopes: Scope[], person_id?: number) =>
+    call<ApiToken & { token: string }>("POST", "/api/tokens", { name, scopes, person_id }),
+  revokeToken: (id: number) => call<ApiToken>("DELETE", `/api/tokens/${id}`),
 
   rules: (choreId?: number) => call<Rule[]>("GET", choreId ? `/api/rules?chore_id=${choreId}` : "/api/rules"),
   createRule: (r: RuleInput) => call<Rule>("POST", "/api/rules", r),

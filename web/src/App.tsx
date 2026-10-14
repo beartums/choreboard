@@ -10,6 +10,7 @@ import { InboxPage } from "./pages/InboxPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TokensPage } from "./pages/TokensPage";
 import { SetupPage } from "./pages/SetupPage";
 
 export function App() {
@@ -53,6 +54,7 @@ function Shell({ me }: { me: Me }) {
           <Route path="/people" element={<PeoplePage />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/tokens" element={me.person ? <TokensPage me={me.person} /> : null} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="*" element={<p>Nothing here. <NavLink to="/chores">Chores</NavLink></p>} />
         </Routes>

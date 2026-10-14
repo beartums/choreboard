@@ -818,8 +818,15 @@ class Service:
             raise NotFound(f"no token {tid}")
         return {**dict(row), "scopes": row["scopes"].split(",")}
 
-    def tokens(self) -> list[dict[str, Any]]:
-        return [self._token(r["id"]) for r in self._all("SELECT id FROM tokens ORDER BY id")]
+    def tokens(self, actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+        """Every token, newest first, with whose name it acts in."""
+        self._check(actor, "tokens.read")
+        out = []
+        for r in self._all("SELECT id FROM tokens ORDER BY id DESC"):
+            t = self._token(r["id"])
+            t["person_name"] = self._name(t["person_id"])
+            out.append(t)
+        return out
 
     def revoke_token(self, actor: dict[str, Any] | None, tid: int) -> dict[str, Any]:
         self._check(actor, "tokens.write")
