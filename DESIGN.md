@@ -92,9 +92,9 @@ whole while neither of its sides has an outcome.
 1. Calendar engine + tests. ✅
 2. Storage (SQLite), outcomes, ledger, swaps. ✅
 3. HTTP API (FastAPI), CRUD, tokens, Pomerium verification. ✅
-4. Container, CI (tests + multi-arch image), deploy in griflab `tools`. ← next
-5. Setup UI.
-6. nav widget via a token.
+4. Container, CI (tests + multi-arch image), deploy in griflab `tools`. ✅
+5. Web UI: setup, then the calendar. ✅
+6. nav widget via a token. ← next
 
 Out of the first version: rewards, streaks, photos, notifications.
 

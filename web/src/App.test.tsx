@@ -13,7 +13,7 @@ describe("first visit", () => {
     renderAt("/");
     await userEvent.type(await screen.findByLabelText("Your name"), "Eric");
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
-    expect(await screen.findByRole("heading", { name: "Chores" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Calendar" })).toBeInTheDocument();
     expect(s.calls).toContainEqual({ method: "POST", path: "/api/setup", body: { name: "Eric" } });
   });
 });

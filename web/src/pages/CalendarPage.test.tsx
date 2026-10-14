@@ -1,0 +1,129 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { Entry, Person } from "../api";
+import { addDays, today, weekStart } from "../dates";
+import { fakeApi, type FakeState } from "../test/fakeApi";
+import { CalendarPage } from "./CalendarPage";
+
+const P = (id: number, name: string): Person => ({ id, name, color: "", email: `${name.toLowerCase()}@x`, role: "member", active: 1 });
+const ERIC = { ...P(1, "Eric"), role: "admin" as const };
+const PEOPLE = [ERIC, P(2, "Tucker"), P(3, "Cass"), P(4, "Mom")];
+const MON = weekStart(today());
+
+function entry(dayOffset: number, person: number, extra: Partial<Entry> = {}): Entry {
+  const date = addDays(MON, dayOffset);
+  return { id: `7:${date}:rule:${person}`, chore_id: 7, date, person_id: person, due: "18:00", source: "rule",
+           rule_id: person, scheduled_person_id: null, override_id: null, skipped: false, reason: "", group_id: null,
+           outcome: null, ...extra };
+}
+
+let s: FakeState;
+beforeEach(() => {
+  s = fakeApi({
+    people: PEOPLE,
+    chores: [{ id: 7, title: "Walk the dog", description: "", icon: "🐕", points: 3, active: 1 }],
+    // Tucker Mon/Wed, Cass Tue/Sat, Mom Thu/Fri, Eric Sun -- and next week's Sunday too.
+    entries: [entry(0, 2), entry(1, 3), entry(2, 2), entry(3, 4), entry(4, 4), entry(5, 3), entry(6, 1), entry(9, 2), entry(13, 1)],
+    balances: { 2: 9 },
+  });
+});
+
+const show = () => render(<MemoryRouter><CalendarPage me={ERIC} /></MemoryRouter>);
+const open = async (dayOffset: number) => {
+  const e = s.entries.find((x) => x.date === addDays(MON, dayOffset))!;
+  const who = PEOPLE.find((p) => p.id === e.person_id)!.name;
+  const buttons = await screen.findAllByRole("button", { name: new RegExp(`Walk the dog.*${who}`) });
+  await userEvent.click(buttons[0]);
+  return screen.findByRole("dialog");
+};
+
+describe("calendar", () => {
+  it("shows the week's rotation and everyone's points", async () => {
+    show();
+    expect(await screen.findAllByRole("button", { name: /Walk the dog/ })).toHaveLength(7);
+    expect(within(screen.getByRole("list", { name: "Points" })).getByText("9")).toBeInTheDocument();
+  });
+
+  it("records 'I did it'", async () => {
+    show();
+    const panel = await open(6);                      // Eric's Sunday
+    await userEvent.click(within(panel).getByRole("button", { name: "I did it" }));
+    await waitFor(() => expect(s.calls).toContainEqual(expect.objectContaining(
+      { method: "POST", path: `/api/occurrences/7:${addDays(MON, 6)}:rule:1/outcome`, body: { status: "done" } })));
+  });
+
+  it("'missed' asks for a reason and defaults the deduction to the chore's points", async () => {
+    show();
+    const panel = await open(0);                      // Tucker's Monday
+    await userEvent.click(within(panel).getByRole("button", { name: "Missed" }));
+    const record = within(panel).getByRole("button", { name: "Record" });
+    expect(record).toBeDisabled();
+    expect(within(panel).getByLabelText(/Points to take from Tucker/)).toHaveValue(3);
+    await userEvent.clear(within(panel).getByLabelText(/Points to take/));
+    await userEvent.type(within(panel).getByLabelText(/Points to take/), "1");
+    await userEvent.type(within(panel).getByLabelText("Why"), "forgot");
+    await userEvent.click(record);
+    await waitFor(() => expect(s.calls.find((c) => c.path.endsWith("/outcome"))?.body)
+      .toEqual({ status: "failed", note: "forgot", deduct: 1 }));
+  });
+
+  it("'someone else did it' credits the person who covered", async () => {
+    show();
+    const panel = await open(3);                      // Mom's Thursday
+    await userEvent.click(within(panel).getByRole("button", { name: "Someone else did it" }));
+    await userEvent.selectOptions(within(panel).getByLabelText("Who did it"), "Cass");
+    await userEvent.type(within(panel).getByLabelText("Why"), "Mom at work");
+    await userEvent.click(within(panel).getByRole("button", { name: "Record" }));
+    await waitFor(() => expect(s.calls.find((c) => c.path.endsWith("/outcome"))!.body)
+      .toEqual({ status: "covered", note: "Mom at work", done_by: 3 }));
+  });
+
+  it("swaps with any later day and asks why", async () => {
+    show();
+    const panel = await open(6);                      // Eric's Sunday
+    await userEvent.click(within(panel).getByRole("button", { name: "Swap with another day" }));
+    const list = await within(panel).findByLabelText("Swap with");
+    // Only other people's days are offered (not Eric's own next Sunday).
+    const options = within(list).getAllByRole("option").map((o) => o.textContent);
+    expect(options.some((t) => t!.includes("Eric"))).toBe(false);
+    // From today (or the day itself, if earlier) onwards.
+    const from = today() < addDays(MON, 6) ? today() : addDays(MON, 6);
+    expect(options).toHaveLength(s.entries.filter((e) => e.person_id !== 1 && e.date >= from).length);
+    const target = s.entries.filter((e) => e.person_id !== 1 && e.date >= from)[0];
+    await userEvent.selectOptions(list, target.id);
+    await userEvent.type(within(panel).getByLabelText("Why"), "Eric away Sunday");
+    await userEvent.click(within(panel).getByRole("button", { name: "Swap" }));
+    await waitFor(() => expect(s.calls.find((c) => c.path === "/api/swaps")!.body).toEqual(
+      { a: `7:${addDays(MON, 6)}:rule:1`, b: target.id, reason: "Eric away Sunday" }));
+    // Reloaded: the two days now show the swap.
+    expect(await screen.findAllByText("Swapped")).toHaveLength(2);
+  });
+
+  it("a recorded day offers undo, with a reason", async () => {
+    s.entries[0].outcome = { id: 55, status: "done", assignee_id: 2, done_by_id: 2, note: "", recorded_by: 2, recorded_at: "" };
+    show();
+    const panel = await open(0);
+    expect(within(panel).getByText("Done by Tucker")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Missed" })).toBeNull();
+    await userEvent.click(within(panel).getByRole("button", { name: "Undo this" }));
+    expect(within(panel).getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
+  it("navigates weeks and filters to mine", async () => {
+    show();
+    await screen.findAllByRole("button", { name: /Walk the dog/ });
+    await userEvent.click(screen.getByRole("checkbox", { name: /Only mine/ }));
+    await waitFor(() => expect(s.calls.some((c) => c.path.includes("person_id=1"))).toBe(true));
+    await userEvent.click(screen.getByRole("button", { name: "Next week" }));
+    await waitFor(() => expect(s.calls.some((c) => c.path.includes(`from=${addDays(MON, 7)}`))).toBe(true));
+  });
+
+  it("closes on Escape", async () => {
+    show();
+    await open(0);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

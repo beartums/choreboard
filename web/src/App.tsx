@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { api, type Me } from "./api";
 import { ErrorNote } from "./components/ErrorNote";
+import { CalendarPage } from "./pages/CalendarPage";
 import { ChoreDetail } from "./pages/ChoreDetail";
 import { ChoresPage } from "./pages/ChoresPage";
 import { PeoplePage } from "./pages/PeoplePage";
@@ -25,6 +26,7 @@ export function App() {
       <header className="top">
         <span className="brand">Choreboard</span>
         <nav aria-label="Main">
+          <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/chores">Chores</NavLink>
           <NavLink to="/people">People</NavLink>
         </nav>
@@ -32,7 +34,8 @@ export function App() {
       </header>
       <main className="page">
         <Routes>
-          <Route path="/" element={<Navigate to="/chores" replace />} />
+          <Route path="/" element={<Navigate to="/calendar" replace />} />
+          <Route path="/calendar" element={me.person ? <CalendarPage me={me.person} /> : null} />
           <Route path="/chores" element={<ChoresPage />} />
           <Route path="/chores/:id" element={<ChoreDetail />} />
           <Route path="/people" element={<PeoplePage />} />

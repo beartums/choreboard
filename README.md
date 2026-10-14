@@ -4,10 +4,11 @@ Household chores as a calendar: schedule rules give the defaults, and an
 override for a specific date wins on that date and nowhere else. Points live
 in an append-only ledger with a reason on every entry.
 
-Status: **step 5 of 6, in progress.** Done: the calendar engine
-(`calendar.py`), the service over SQLite (`service.py`), the HTTP API
-(`api.py`, `auth.py`), the image and deployment, and the setup UI (`web/`:
-people, chores, weekly rotations and other schedules). Next: the calendar view.
+Status: **step 5 of 6.** Done: the calendar engine (`calendar.py`), the
+service over SQLite (`service.py`), the HTTP API (`api.py`, `auth.py`), the
+image and deployment, and the web UI (`web/`): setup (people, chores, weekly
+rotations, other schedules) and the calendar (record what happened; give,
+skip or swap a date; undo). Next: the nav widget.
 
 ## Run it locally
 

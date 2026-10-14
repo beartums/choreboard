@@ -1,13 +1,15 @@
 // An in-memory stand-in for the HTTP API, behind `fetch`, so pages are tested
 // against real request/response shapes without a server.
 import { vi } from "vitest";
-import type { Chore, Person, Rule } from "../api";
+import type { Chore, Entry, Person, Rule } from "../api";
 
 export interface FakeState {
   me: { email: string; person: Person | null; via: string; scopes: string[]; needs_setup: boolean };
   people: Person[];
   chores: Chore[];
   rules: Rule[];
+  entries: Entry[];
+  balances: Record<number, number>;
   calls: { method: string; path: string; body?: unknown }[];
 }
 
@@ -15,7 +17,7 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
   const eric: Person = { id: 1, name: "Eric", color: "", email: "eric@example.com", role: "admin", active: 1 };
   const s: FakeState = {
     me: { email: "eric@example.com", person: eric, via: "dev", scopes: ["read", "write"], needs_setup: false },
-    people: [eric], chores: [], rules: [], calls: [], ...init,
+    people: [eric], chores: [], rules: [], entries: [], balances: {}, calls: [], ...init,
   };
   let next = 100;
   const json = (status: number, body: unknown) =>
@@ -76,6 +78,36 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     if (p.startsWith("/api/rules/") && method === "DELETE") {
       s.rules = s.rules.filter((r) => r.id !== id);
       return json(204, null);
+    }
+    if (p === "/api/calendar") {
+      const from = url.searchParams.get("from")!, to = url.searchParams.get("to")!;
+      const who = url.searchParams.get("person_id");
+      return json(200, s.entries.filter((e) => e.date >= from && e.date <= to && (!who || e.person_id === Number(who))));
+    }
+    if (/^\/api\/people\/\d+\/points$/.test(p)) {
+      const pid = Number(p.split("/")[3]);
+      return json(200, { person_id: pid, balance: s.balances[pid] ?? 0, entries: [] });
+    }
+    const occ = p.match(/^\/api\/occurrences\/([^/]+)\/(outcome|reassign|skip)$/);
+    if (occ && method === "POST") {
+      const e = s.entries.find((x) => x.id === decodeURIComponent(occ[1]))!;
+      if (occ[2] === "outcome") {
+        if (["failed", "covered", "failed_covered"].includes(body.status) && !body.note)
+          return json(400, { error: `'${body.status}' needs a note saying why` });
+        e.outcome = { id: next++, status: body.status, assignee_id: e.person_id, done_by_id: body.done_by ?? e.person_id,
+                      note: body.note ?? "", recorded_by: 1, recorded_at: "now" };
+        return json(201, e.outcome);
+      }
+      if (occ[2] === "reassign") Object.assign(e, { scheduled_person_id: e.person_id, person_id: body.person_id, override_id: next++, source: "override", reason: body.reason });
+      if (occ[2] === "skip") Object.assign(e, { skipped: true, override_id: next++, source: "override", reason: body.reason });
+      return json(200, e);
+    }
+    if (p === "/api/swaps" && method === "POST") {
+      const a = s.entries.find((x) => x.id === body.a)!, b2 = s.entries.find((x) => x.id === body.b)!;
+      const g = "sw_test";
+      [a.person_id, b2.person_id] = [b2.person_id, a.person_id];
+      for (const x of [a, b2]) Object.assign(x, { group_id: g, source: "override", override_id: next++, reason: body.reason });
+      return json(201, { group_id: g, a, b: b2 });
     }
     return json(404, { error: `fake: no route ${method} ${p}` });
   });

@@ -63,3 +63,30 @@ button.danger:not(.ghost) { background: var(--danger); color: #fff; }
 .c-coral { background: #e8795a; } .c-mint { background: #5cc7a2; } .c-butter { background: #e8c75a; }
 .c-sky { background: #5aa7e8; } .c-rose { background: #e85a8f; } .c-leaf { background: #74b34f; }
 .c-lilac { background: #a98be8; } .c-sand { background: #c9a87a; }
+
+.calhead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.calhead h1 { margin: 0; }
+.points { list-style: none; padding: 0; margin: 1rem 0; display: flex; gap: .5rem 1.25rem; flex-wrap: wrap; font-size: .95rem; }
+.points li { display: flex; align-items: center; gap: .35rem; }
+.days { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 1rem; }
+.day h2 { margin: 0 0 .4rem; font-size: 1rem; color: var(--muted); }
+.day.today h2 { color: var(--accent); }
+.occ { width: 100%; display: flex; align-items: center; gap: .75rem; text-align: left; background: var(--card); color: var(--fg);
+       border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .85rem; }
+.occ:hover { border-color: var(--accent); }
+.occ.skipped { opacity: .55; }
+.occ.skipped strong { text-decoration: line-through; }
+.occ.st-done, .occ.st-covered { border-left: 4px solid #3f9b5a; }
+.occ.st-failed, .occ.st-failed_covered { border-left: 4px solid var(--danger); }
+.occ.st-skipped { opacity: .6; }
+.badge { font-size: .75rem; padding: .1rem .5rem; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
+.badge.swap { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.block .swatch { display: inline-block; vertical-align: -1px; width: .7rem; height: .7rem; }
+.backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / .35); display: flex; align-items: flex-start; justify-content: center;
+            padding: 6vh 1rem 1rem; z-index: 10; overflow: auto; }
+.panel { width: min(560px, 100%); }
+.panel h2 { margin: 0; }
+.panel h3 { margin: .25rem 0 0; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.row-plain { display: flex; align-items: center; gap: .5rem; }
+.note { margin: 0; padding: .5rem .75rem; border-radius: 8px; background: var(--bg); }
+select[size] { padding: .25rem; }

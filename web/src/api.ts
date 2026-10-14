@@ -38,6 +38,44 @@ export interface Rule {
 
 export type RuleInput = Omit<Rule, "id">;
 
+export type Status = "done" | "skipped" | "failed" | "covered" | "failed_covered";
+
+export interface Outcome {
+  id: number;
+  status: Status;
+  assignee_id: number;
+  done_by_id: number | null;
+  note: string;
+  recorded_by: number | null;
+  recorded_at: string;
+}
+
+/** One occurrence on the calendar, overrides applied (choreboard/service.py entries_json). */
+export interface Entry {
+  id: string;                      // occurrence id: chore:YYYY-MM-DD:rule|add:n
+  chore_id: number;
+  date: string;
+  person_id: number;
+  due: string | null;
+  source: "rule" | "override";
+  rule_id: number | null;
+  scheduled_person_id: number | null;
+  override_id: number | null;
+  skipped: boolean;
+  reason: string;
+  group_id: string | null;
+  outcome: Outcome | null;
+}
+
+export interface LedgerEntry {
+  id: number;
+  person_id: number;
+  delta: number;
+  kind: "earned" | "deduction" | "adjustment" | "reversal";
+  note: string;
+  created_at: string;
+}
+
 export interface Me {
   email: string;
   person: Person | null;
@@ -85,6 +123,25 @@ export const api = {
     call<Chore>("POST", "/api/chores", c),
   updateChore: (id: number, c: Partial<Omit<Chore, "id" | "active">> & { active?: boolean }) =>
     call<Chore>("PATCH", `/api/chores/${id}`, c),
+
+  calendar: (from: string, to: string, personId?: number) =>
+    call<Entry[]>("GET", `/api/calendar?from=${from}&to=${to}${personId ? `&person_id=${personId}` : ""}`),
+  reassign: (key: string, person_id: number, reason: string) =>
+    call<Entry>("POST", `/api/occurrences/${key}/reassign`, { person_id, reason }),
+  skip: (key: string, reason: string) => call<Entry>("POST", `/api/occurrences/${key}/skip`, { reason }),
+  addOccurrence: (b: { chore_id: number; date: string; person_id: number; reason: string; due?: string | null }) =>
+    call<Entry>("POST", "/api/occurrences", b),
+  swap: (a: string, b: string, reason: string) =>
+    call<{ group_id: string; a: Entry; b: Entry }>("POST", "/api/swaps", { a, b, reason }),
+  removeOverride: (groupOrId: string | number) =>
+    call<{ removed: number }>("DELETE", `/api/overrides/${groupOrId}`),
+  record: (key: string, b: { status: Status; note?: string; done_by?: number; deduct?: number }) =>
+    call<Outcome>("POST", `/api/occurrences/${key}/outcome`, b),
+  undo: (outcomeId: number, note: string) => call<Outcome>("POST", `/api/outcomes/${outcomeId}/undo`, { note }),
+  points: (personId: number) =>
+    call<{ person_id: number; balance: number; entries: LedgerEntry[] }>("GET", `/api/people/${personId}/points?limit=20`),
+  adjust: (person_id: number, delta: number, note: string) =>
+    call<LedgerEntry>("POST", "/api/ledger", { person_id, delta, note }),
 
   rules: (choreId?: number) => call<Rule[]>("GET", choreId ? `/api/rules?chore_id=${choreId}` : "/api/rules"),
   createRule: (r: RuleInput) => call<Rule>("POST", "/api/rules", r),
