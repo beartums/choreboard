@@ -173,7 +173,11 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
 
     # --- health, identity, setup ------------------------------------------------
 
+    # /healthz is for the kubelet's probes, inside the cluster. Through the
+    # public URL Pomerium answers /healthz itself (a bare "ok"), so the same
+    # check is also at /api/health, which reaches the app.
     @app.get("/healthz", include_in_schema=False)
+    @app.get("/api/health", include_in_schema=False)
     def healthz() -> dict[str, str]:
         svc.db.execute("SELECT 1")
         return {"status": "ok", "version": os.environ.get("CHOREBOARD_VERSION", "dev")}

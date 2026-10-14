@@ -16,6 +16,7 @@ setup.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -25,6 +26,12 @@ import jwt
 from .service import Forbidden, Service
 
 READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+# Pomerium stamps `iat` (and `exp`) from ITS clock; this pod's clock is
+# another node's. With no leeway, a token stamped a fraction of a second
+# "in the future" by a node running slightly ahead is rejected -- an
+# intermittent 401 that a reload clears. A minute is the usual allowance.
+CLOCK_LEEWAY_S = 60
+log = logging.getLogger("choreboard.auth")
 
 
 class Unauthenticated(Exception):
@@ -76,8 +83,10 @@ class PomeriumVerifier:
         otherwise."""
         try:
             claims = jwt.decode(token, self.keys(token), algorithms=["ES256", "RS256"],
-                                audience=self.audience, options={"require": ["exp", "aud"]})
+                                audience=self.audience, leeway=CLOCK_LEEWAY_S,
+                                options={"require": ["exp", "aud"]})
         except Exception as e:  # noqa: BLE001 -- every failure is the same answer
+            log.warning("Pomerium assertion rejected: %s: %s", type(e).__name__, e)
             raise Unauthenticated(f"Pomerium assertion rejected: {e}") from None
         email = str(claims.get("email") or "").strip().lower()
         if not email:

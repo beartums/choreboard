@@ -63,7 +63,7 @@ def test_unsigned_forged_and_expired_are_refused(client):
     assert client.get("/api/me", headers=forged).status_code == 401
     wrong_aud = {"X-Pomerium-Jwt-Assertion": assertion("eric@example.com", aud="other.example.com")}
     assert client.get("/api/me", headers=wrong_aud).status_code == 401
-    expired = {"X-Pomerium-Jwt-Assertion": assertion("eric@example.com", exp_in=-10)}
+    expired = {"X-Pomerium-Jwt-Assertion": assertion("eric@example.com", exp_in=-120)}   # beyond the leeway
     assert client.get("/api/me", headers=expired).status_code == 401
     # A plain identity header means nothing.
     assert client.get("/api/me", headers={"X-Authentik-Email": "eric@example.com"}).status_code == 401
@@ -216,3 +216,21 @@ def test_rule_time_window_over_http(client, home):
     assert (cal[0]["available"], cal[0]["due"]) == ("16:00", "18:00")
     bad = client.put(f"/api/rules/{first['id']}", json=body | {"available": "19:00"}, headers=E)
     assert bad.status_code == 400 and "before the due" in bad.json()["error"]
+
+
+def test_clock_skew_is_tolerated_but_not_forever(client, home):
+    """Pomerium's node may run a little ahead of this pod's: a token issued
+    "30 seconds from now" is accepted; one issued two minutes ahead isn't."""
+    def stamped(iat_offset):
+        now = int(time.time())
+        return {"X-Pomerium-Jwt-Assertion": jwt.encode(
+            {"email": "eric@example.com", "aud": AUD, "iat": now + iat_offset, "nbf": now + iat_offset,
+             "exp": now + 300}, KEY, algorithm="ES256")}
+    assert client.get("/api/me", headers=stamped(30)).status_code == 200
+    assert client.get("/api/me", headers=stamped(120)).status_code == 401
+    r = client.get("/api/me", headers=stamped(120))
+    assert "not yet valid" in r.json()["error"] or "iat" in r.json()["error"]
+
+
+def test_health_is_reachable_under_api(client):
+    assert client.get("/api/health").json()["status"] == "ok"
