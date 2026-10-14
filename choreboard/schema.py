@@ -171,6 +171,35 @@ MIGRATIONS: list[str] = [
     CREATE INDEX deliveries_due ON deliveries(status, next_at);
     CREATE INDEX deliveries_person ON deliveries(person_id);
     """,
+    # 5: the in-app inbox. Any event a person hasn't ignored lands here, with
+    # a read state, whatever channels they chose; 'app' is a subscription
+    # channel meaning "inbox only". SQLite can't alter a CHECK, so the
+    # subscriptions table is rebuilt to allow it.
+    """
+    CREATE TABLE notifications (
+        id          INTEGER PRIMARY KEY,
+        person_id   INTEGER NOT NULL REFERENCES people(id),
+        event_id    INTEGER NOT NULL REFERENCES events(id),
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+        read_at     TEXT,
+        UNIQUE (person_id, event_id)
+    );
+    CREATE INDEX notifications_unread ON notifications(person_id, read_at);
+
+    CREATE TABLE subscriptions_new (
+        id          INTEGER PRIMARY KEY,
+        person_id   INTEGER NOT NULL REFERENCES people(id),
+        event       TEXT NOT NULL,
+        channel     TEXT NOT NULL CHECK (channel IN ('app', 'email', 'discord')),
+        chore_id    INTEGER REFERENCES chores(id),
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+    INSERT INTO subscriptions_new (id, person_id, event, channel, chore_id, created_at)
+        SELECT id, person_id, event, channel, chore_id, created_at FROM subscriptions;
+    DROP TABLE subscriptions;
+    ALTER TABLE subscriptions_new RENAME TO subscriptions;
+    CREATE UNIQUE INDEX subscriptions_one ON subscriptions(person_id, event, channel, COALESCE(chore_id, 0));
+    """,
 ]
 
 

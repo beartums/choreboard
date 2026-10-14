@@ -163,3 +163,9 @@ Out of the first version: rewards, streaks, photos, notifications.
   user id. WhatsApp deferred: Meta's Business Platform needs pre-approved
   templates and per-message fees; unofficial clients get numbers banned.
   Reminders (before due / overdue) deferred.
+- **An in-app inbox** (v0.5.1): any event a person hasn't ignored -- a
+  subscription on any channel -- also lands in `notifications`, once, with a
+  read state, for a notifications page later. `app` is a subscription channel
+  meaning "inbox only". Ignoring (no subscription) is the default and stores
+  nothing for that person. API: `GET /api/me/inbox[?unread=true]`,
+  `POST /api/me/inbox/read {ids?, read}`.

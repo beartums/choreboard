@@ -669,8 +669,8 @@ class Service:
         self._person(person_id)
         if event not in notify.EVENTS:
             raise Invalid(f"event is one of {', '.join(notify.EVENTS)}")
-        if channel not in notify.CHANNELS:
-            raise Invalid(f"channel is one of {', '.join(notify.CHANNELS)}")
+        if channel not in notify.SUBSCRIBE_CHANNELS:
+            raise Invalid(f"channel is one of {', '.join(notify.SUBSCRIBE_CHANNELS)}")
         if chore_id is not None:
             if notify.EVENTS[event][1] == "household":
                 raise Invalid(f"'{event}' is about the whole household, not one chore")
@@ -721,6 +721,33 @@ class Service:
                         " ON CONFLICT (person_id, channel) DO UPDATE SET address = excluded.address,"
                         " enabled = excluded.enabled", (person_id, channel, address, 1 if enabled else 0))
         return self.channels(person_id)
+
+    def inbox(self, person_id: int, unread_only: bool = False, limit: int = 50) -> list[dict[str, Any]]:
+        """A person's notifications, newest first."""
+        self._person(person_id)
+        return [dict(r) for r in self._all(
+            "SELECT n.id, n.read_at, n.created_at, e.kind, e.title, e.body, e.chore_id, e.date, e.actor_id"
+            " FROM notifications n JOIN events e ON e.id = n.event_id WHERE n.person_id = ?"
+            + (" AND n.read_at IS NULL" if unread_only else "") + " ORDER BY n.id DESC LIMIT ?", person_id, limit)]
+
+    def unread(self, person_id: int) -> int:
+        return int(self._one("SELECT COUNT(*) FROM notifications WHERE person_id = ? AND read_at IS NULL",
+                             person_id)[0])
+
+    def mark_read(self, actor: dict[str, Any] | None, person_id: int, ids: list[int] | None = None,
+                  read: bool = True) -> int:
+        """Mark some (or, with ids None, all) of a person's notifications read
+        -- or unread again. Returns how many changed."""
+        self._check(actor, "notifications.write", person_id=person_id)
+        stamp = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')" if read else "NULL"
+        sql = f"UPDATE notifications SET read_at = {stamp} WHERE person_id = ? AND read_at IS {'NULL' if read else 'NOT NULL'}"
+        args: list[Any] = [person_id]
+        if ids is not None:
+            if not ids:
+                return 0
+            sql += f" AND id IN ({','.join('?' * len(ids))})"
+            args += ids
+        return self.db.execute(sql, args).rowcount
 
     def deliveries(self, person_id: int, limit: int = 50) -> list[dict[str, Any]]:
         """Recent notifications for a person, with each one's outcome."""

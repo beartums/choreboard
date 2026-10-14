@@ -6,6 +6,8 @@ How it fits together:
     (the subjects) and who did it (the actor). The event is stored, then fanned
     out: one queued delivery per (subject, channel) whose subscription matches.
   - Nobody is notified about their own action.
+  - Any event a person hasn't ignored also goes in their inbox
+    (`notifications`, with a read state), whatever channels they chose.
   - `deliver_due` (run by the worker in api.py) sends queued deliveries, with
     retries and backoff; every attempt's result is kept, so "why didn't I get
     it" has an answer.
@@ -30,7 +32,10 @@ from typing import Any, Iterable, Protocol
 
 log = logging.getLogger("choreboard.notify")
 
+# Channels a delivery is SENT on. 'app' is a subscription channel too ("inbox
+# only"); every subscription, of any channel, also puts the event in the inbox.
 CHANNELS = ("email", "discord")
+SUBSCRIBE_CHANNELS = ("app", *CHANNELS)
 
 # kind -> (label, who it's about). "mine": the people the event is about, and a
 # subscription can narrow to one chore. "household": everyone.
@@ -76,7 +81,13 @@ def emit(db: sqlite3.Connection, kind: str, *, actor_id: int | None, subjects: I
     for pid in people:
         if pid == actor_id:
             continue                                  # never about your own action
-        for channel in _channels_for(db, pid, kind, chore_id):
+        wanted = _channels_for(db, pid, kind, chore_id)
+        if not wanted:
+            continue                                  # ignored: the default
+        db.execute("INSERT OR IGNORE INTO notifications (person_id, event_id) VALUES (?, ?)", (pid, event_id))
+        for channel in wanted:
+            if channel not in CHANNELS:
+                continue                              # 'app': the inbox row is the whole delivery
             address = address_of(db, pid, channel)
             db.execute(
                 "INSERT INTO deliveries (event_id, person_id, channel, address, status, next_at)"

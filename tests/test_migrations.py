@@ -45,3 +45,19 @@ def test_a_failed_migration_changes_nothing(tmp_path, monkeypatch):
     conn = sqlite3.connect(path)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == before
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'ok'").fetchone() is None, "rolled back whole"
+
+
+def test_migration_5_keeps_subscriptions_and_allows_app(tmp_path):
+    path = str(tmp_path / "v4.db")
+    conn = sqlite3.connect(path, isolation_level=None)
+    for n, sql in enumerate(schema.MIGRATIONS[:4], start=1):
+        for stmt in schema._statements(sql):
+            conn.execute(stmt)
+        conn.execute(f"PRAGMA user_version = {n}")
+    conn.execute("INSERT INTO people (name, email) VALUES ('T', 't@x')")
+    conn.execute("INSERT INTO subscriptions (person_id, event, channel) VALUES (1, 'missed', 'email')")
+    conn.close()
+    svc = Service(schema.connect(path))
+    assert [(s["event"], s["channel"]) for s in svc.subscriptions(1)] == [("missed", "email")]
+    svc.subscribe({"id": 1, "active": 1}, 1, "missed", "app")
+    assert len(svc.subscriptions(1)) == 2

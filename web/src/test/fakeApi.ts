@@ -120,7 +120,7 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
         events: [{ kind: "swapped", label: "Someone swapped a chore with me", scope: "mine" },
                  { kind: "missed", label: "My chore was marked missed", scope: "mine" },
                  { kind: "new_chore", label: "A new chore was added", scope: "household" }],
-        channels: ["email", "discord"].map((c) => ({ channel: c, configured: s.configured.includes(c) })),
+        channels: ["app", "email", "discord"].map((c) => ({ channel: c, configured: c === "app" || s.configured.includes(c) })),
       });
     }
     if (p === "/api/me/notifications") return json(200, { channels: s.channels, subscriptions: s.subs });

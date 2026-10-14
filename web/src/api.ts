@@ -82,7 +82,9 @@ export interface LedgerEntry {
   created_at: string;
 }
 
-export type Channel = "email" | "discord";
+export type Channel = "app" | "email" | "discord";
+/** Channels with an address to set; "app" (the in-app inbox) needs none. */
+export type SendChannel = Exclude<Channel, "app">;
 
 export interface Catalog {
   events: { kind: string; label: string; scope: "mine" | "household" }[];
@@ -102,9 +104,20 @@ export interface ChannelSetting {
   default: boolean;
 }
 
+export interface InboxItem {
+  id: number;
+  read_at: string | null;
+  created_at: string;
+  kind: string;
+  title: string;
+  body: string;
+  chore_id: number | null;
+  date: string | null;
+}
+
 export interface Delivery {
   id: number;
-  channel: Channel;
+  channel: SendChannel;
   address: string;
   status: "queued" | "sending" | "sent" | "failed";
   attempts: number;
@@ -185,10 +198,13 @@ export const api = {
 
   catalog: () => call<Catalog>("GET", "/api/notifications/catalog"),
   myNotifications: () =>
-    call<{ channels: Record<Channel, ChannelSetting>; subscriptions: Subscription[] }>("GET", "/api/me/notifications"),
-  setChannel: (channel: Channel, address: string | null) =>
-    call<Record<Channel, ChannelSetting>>("PUT", `/api/me/channels/${channel}`, { address, enabled: true }),
-  testChannel: (channel: Channel) => call<{ status: string }>("POST", `/api/me/channels/${channel}/test`),
+    call<{ channels: Record<SendChannel, ChannelSetting>; subscriptions: Subscription[] }>("GET", "/api/me/notifications"),
+  setChannel: (channel: SendChannel, address: string | null) =>
+    call<Record<SendChannel, ChannelSetting>>("PUT", `/api/me/channels/${channel}`, { address, enabled: true }),
+  inbox: (unread = false) => call<{ unread: number; items: InboxItem[] }>("GET", `/api/me/inbox${unread ? "?unread=true" : ""}`),
+  markRead: (ids?: number[], read = true) =>
+    call<{ changed: number; unread: number }>("POST", "/api/me/inbox/read", { ids: ids ?? null, read }),
+  testChannel: (channel: SendChannel) => call<{ status: string }>("POST", `/api/me/channels/${channel}/test`),
   subscribe: (event: string, channel: Channel, chore_id: number | null = null) =>
     call<Subscription>("POST", "/api/me/subscriptions", { event, channel, chore_id }),
   unsubscribe: (id: number) => call<void>("DELETE", `/api/me/subscriptions/${id}`),

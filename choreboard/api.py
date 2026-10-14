@@ -129,6 +129,11 @@ class SetupIn(BaseModel):
     name: str
 
 
+class ReadIn(BaseModel):
+    ids: list[int] | None = Field(None, description="omit to mark all")
+    read: bool = True
+
+
 class ChannelIn(BaseModel):
     address: str | None = Field(None, description="email address, or numeric Discord user id; empty clears")
     enabled: bool = True
@@ -136,7 +141,7 @@ class ChannelIn(BaseModel):
 
 class SubscriptionIn(BaseModel):
     event: str
-    channel: Literal["email", "discord"]
+    channel: Literal["app", "email", "discord"]
     chore_id: int | None = Field(None, description="one chore; omit for all of my chores")
 
 
@@ -387,7 +392,8 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
         """The events you can subscribe to, and which channels this server
         can actually send on."""
         return {"events": [{"kind": k, "label": lbl, "scope": sc} for k, (lbl, sc) in notify.EVENTS.items()],
-                "channels": [{"channel": c, "configured": c in senders} for c in notify.CHANNELS]}
+                "channels": [{"channel": "app", "configured": True}]
+                + [{"channel": c, "configured": c in senders} for c in notify.CHANNELS]}
 
     @app.get("/api/me/notifications")
     def my_notifications(a: dict = Depends(actor)) -> dict[str, Any]:
@@ -409,6 +415,15 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     @app.delete("/api/me/subscriptions/{sid}", status_code=204)
     def unsubscribe(sid: int, a: dict = Depends(actor)) -> None:
         svc.unsubscribe(a, a["id"], sid)
+
+    @app.get("/api/me/inbox")
+    def inbox(unread: bool = False, limit: int = Query(50, ge=1, le=200), a: dict = Depends(actor)) -> dict[str, Any]:
+        """Your notifications (everything you haven't ignored), newest first."""
+        return {"unread": svc.unread(a["id"]), "items": svc.inbox(a["id"], unread, limit)}
+
+    @app.post("/api/me/inbox/read")
+    def mark_read(body: ReadIn, a: dict = Depends(actor)) -> dict[str, int]:
+        return {"changed": svc.mark_read(a, a["id"], body.ids, body.read), "unread": svc.unread(a["id"])}
 
     @app.get("/api/me/deliveries")
     def my_deliveries(limit: int = Query(50, ge=1, le=200), a: dict = Depends(actor)) -> list[dict[str, Any]]:

@@ -49,3 +49,15 @@ describe("notifications", () => {
     expect(await screen.findByRole("list", { name: "Per-chore notifications" })).toHaveTextContent("Bins");
   });
 });
+
+
+describe("in-app channel", () => {
+  it("offers In app as a column and as the per-chore default", async () => {
+    const s = fakeApi({ chores: [{ id: 7, title: "Bins", description: "", icon: "", points: 1, active: 1 }] });
+    show();
+    await userEvent.click(await screen.findByRole("checkbox", { name: "My chore was marked missed by In app" }));
+    await waitFor(() => expect(s.subs).toEqual([expect.objectContaining({ event: "missed", channel: "app" })]));
+    const form = screen.getByRole("form", { name: "Add a per-chore notification" });
+    expect(within(form).getByLabelText("How")).toHaveValue("app");
+  });
+});

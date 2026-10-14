@@ -253,3 +253,39 @@ def test_discord_sender_opens_a_dm_then_posts(monkeypatch):
                        {"recipient_id": "123456789012345678"})
     assert seen[1][:2] == ("POST", "https://discord.com/api/v10/channels/999/messages")
     assert seen[1][3] == {"content": "**Swapped**\nyou now do Sunday"}
+
+
+def test_anything_not_ignored_lands_in_the_inbox(h):
+    # Ignored by default: nothing.
+    h.svc.adjust(h.eric, h.tucker["id"], 1, "x")
+    assert h.svc.inbox(h.tucker["id"]) == []
+    # Inbox only: no delivery, an unread notification.
+    h.svc.subscribe(h.tucker, h.tucker["id"], "points", "app")
+    h.svc.adjust(h.eric, h.tucker["id"], 2, "y")
+    [n] = h.svc.inbox(h.tucker["id"])
+    assert (n["title"], n["read_at"]) == ("Points +2", None) and h.svc.unread(h.tucker["id"]) == 1
+    assert h.svc.deliveries(h.tucker["id"]) == []
+    # Email AND app: one inbox row (not two), one delivery.
+    h.svc.subscribe(h.tucker, h.tucker["id"], "points", "email")
+    h.svc.adjust(h.eric, h.tucker["id"], 3, "z")
+    assert len(h.svc.inbox(h.tucker["id"])) == 2 and len(h.svc.deliveries(h.tucker["id"])) == 1
+    # Email alone still counts as "not ignored".
+    h.svc.subscribe(h.mom, h.mom["id"], "new_chore", "email")
+    h.svc.create_chore(h.eric, "Bins")
+    assert [n["kind"] for n in h.svc.inbox(h.mom["id"])] == ["new_chore"]
+
+
+def test_read_state(h):
+    h.svc.subscribe(h.tucker, h.tucker["id"], "points", "app")
+    for i in range(3):
+        h.svc.adjust(h.eric, h.tucker["id"], 1, f"n{i}")
+    items = h.svc.inbox(h.tucker["id"])
+    assert h.svc.mark_read(h.tucker, h.tucker["id"], [items[0]["id"]]) == 1
+    assert h.svc.unread(h.tucker["id"]) == 2
+    assert len(h.svc.inbox(h.tucker["id"], unread_only=True)) == 2
+    assert h.svc.mark_read(h.tucker, h.tucker["id"]) == 2 and h.svc.unread(h.tucker["id"]) == 0
+    assert h.svc.mark_read(h.tucker, h.tucker["id"], [items[1]["id"]], read=False) == 1
+    assert h.svc.unread(h.tucker["id"]) == 1
+    assert h.svc.mark_read(h.tucker, h.tucker["id"], []) == 0
+    # Someone else's ids don't touch Tucker's, nor theirs.
+    assert h.svc.mark_read(h.mom, h.mom["id"], [items[1]["id"]]) == 0

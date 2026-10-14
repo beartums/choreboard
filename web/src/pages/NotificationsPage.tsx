@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, type Catalog, type Channel, type ChannelSetting, type Chore, type Delivery, type Subscription } from "../api";
+import { api, type Catalog, type Channel, type ChannelSetting, type Chore, type Delivery, type SendChannel, type Subscription } from "../api";
 import { ErrorNote } from "../components/ErrorNote";
 
-const CHANNEL_NAME: Record<Channel, string> = { email: "Email", discord: "Discord" };
+const CHANNEL_NAME: Record<Channel, string> = { app: "In app", email: "Email", discord: "Discord" };
+const ALL: Channel[] = ["app", "email", "discord"];
 
 /** What you're told about, and where. Notifications are never about your
  *  own actions. */
 export function NotificationsPage() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [channels, setChannels] = useState<Record<Channel, ChannelSetting> | null>(null);
+  const [channels, setChannels] = useState<Record<SendChannel, ChannelSetting> | null>(null);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [chores, setChores] = useState<Chore[]>([]);
   const [log, setLog] = useState<Delivery[]>([]);
@@ -43,24 +44,25 @@ export function NotificationsPage() {
   return (
     <section>
       <h1>Notifications</h1>
-      <p className="muted">You're told when someone <em>else</em> does something that affects you — never about your own actions.</p>
+      <p className="muted">You're told when someone <em>else</em> does something that affects you — never about your own actions.
+        Anything you turn on, by any channel, is also kept in your in-app notifications; "In app" alone means no email or Discord.</p>
       <ErrorNote error={error} />
 
       <h2>Where</h2>
       <div className="grid2">
-        {(["email", "discord"] as Channel[]).map((c) => (
+        {(["email", "discord"] as SendChannel[]).map((c) => (
           <ChannelCard key={c} channel={c} setting={channels[c]} configured={configured(c)} onSaved={load} />
         ))}
       </div>
 
       <h2>What, for all my chores</h2>
       <table className="subs" aria-label="Notifications for all my chores">
-        <thead><tr><th>When</th>{(["email", "discord"] as Channel[]).map((c) => <th key={c}>{CHANNEL_NAME[c]}</th>)}</tr></thead>
+        <thead><tr><th>When</th>{ALL.map((c) => <th key={c}>{CHANNEL_NAME[c]}</th>)}</tr></thead>
         <tbody>
           {catalog.events.map((e) => (
             <tr key={e.kind}>
               <td>{e.label}</td>
-              {(["email", "discord"] as Channel[]).map((c) => (
+              {ALL.map((c) => (
                 <td key={c}>
                   <input type="checkbox" aria-label={`${e.label} by ${CHANNEL_NAME[c]}`} checked={!!all(e.kind, c)}
                     onChange={() => toggle(e.kind, c)} />
@@ -95,7 +97,7 @@ export function NotificationsPage() {
 }
 
 function ChannelCard({ channel, setting, configured, onSaved }:
-  { channel: Channel; setting: ChannelSetting; configured: boolean; onSaved: () => void }) {
+  { channel: SendChannel; setting: ChannelSetting; configured: boolean; onSaved: () => void }) {
   const [address, setAddress] = useState(setting.default ? "" : setting.address ?? "");
   const [error, setError] = useState<unknown>(null);
   const [note, setNote] = useState("");
@@ -143,7 +145,7 @@ function PerChore({ catalog, chores, subs, onChanged, onError }: {
   const mine = catalog.events.filter((e) => e.scope === "mine");
   const [chore, setChore] = useState<number | "">(chores[0]?.id ?? "");
   const [event, setEvent] = useState(mine[0]?.kind ?? "");
-  const [channel, setChannel] = useState<Channel>("email");
+  const [channel, setChannel] = useState<Channel>("app");
   const choreName = (id: number | null) => { const c = chores.find((x) => x.id === id); return c ? `${c.icon} ${c.title}`.trim() : `#${id}`; };
   const label = (k: string) => catalog.events.find((e) => e.kind === k)?.label ?? k;
 
@@ -171,7 +173,7 @@ function PerChore({ catalog, chores, subs, onChanged, onError }: {
         <label>When<select value={event} onChange={(e) => setEvent(e.target.value)}>
           {mine.map((e) => <option key={e.kind} value={e.kind}>{e.label}</option>)}</select></label>
         <label>How<select value={channel} onChange={(e) => setChannel(e.target.value as Channel)}>
-          <option value="email">Email</option><option value="discord">Discord</option></select></label>
+          {ALL.map((c) => <option key={c} value={c}>{CHANNEL_NAME[c]}</option>)}</select></label>
         <div className="actions"><button type="submit" disabled={chore === ""}>Add</button></div>
       </form>
     </div>

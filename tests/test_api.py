@@ -275,3 +275,16 @@ def test_notifications_over_http(home):
     asyncio.run(app.state.deliver_now())
     assert email.sent[-1][1] == "Choreboard test"
     _ = _n
+
+
+def test_inbox_over_http(client, home):
+    E, ids = home["E"], home["ids"]
+    T = as_("tucker@example.com")
+    client.post("/api/me/subscriptions", json={"event": "points", "channel": "app"}, headers=T)
+    client.post("/api/ledger", json={"person_id": ids["tucker"], "delta": 4, "note": "great week"}, headers=E)
+    box = client.get("/api/me/inbox", headers=T).json()
+    assert box["unread"] == 1 and box["items"][0]["title"] == "Points +4" and box["items"][0]["read_at"] is None
+    r = client.post("/api/me/inbox/read", json={}, headers=T).json()
+    assert r == {"changed": 1, "unread": 0}
+    assert client.get("/api/me/inbox?unread=true", headers=T).json()["items"] == []
+    assert client.get("/api/me/inbox", headers=E).json() == {"unread": 0, "items": []}, "Tucker's, not Eric's"
