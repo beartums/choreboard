@@ -289,3 +289,29 @@ def test_read_state(h):
     assert h.svc.mark_read(h.tucker, h.tucker["id"], []) == 0
     # Someone else's ids don't touch Tucker's, nor theirs.
     assert h.svc.mark_read(h.mom, h.mom["id"], [items[1]["id"]]) == 0
+
+
+def test_discord_user_agent_is_the_required_form(monkeypatch):
+    import io
+    got = {}
+
+    class Ctx(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout):
+        got["ua"] = req.get_header("User-agent")
+        return Ctx(b'{"id": "1"}')
+    monkeypatch.setattr(notify.urllib.request, "urlopen", fake)
+    notify.DiscordSender("t").send("123456789012345678", "x", "y")
+    assert got["ua"].startswith("DiscordBot (https://") and got["ua"].endswith(")")
+
+
+def test_discord_errors_in_words():
+    assert "share a server" in notify.discord_reason(403, '{"message": "Cannot send messages to this user", "code": 50007}')
+    assert "token is wrong" in notify.discord_reason(401, '{"message": "401: Unauthorized", "code": 0}')
+    assert "HTML page" in notify.discord_reason(403, "<!DOCTYPE html><title>Access denied</title>")
+    assert notify.discord_reason(500, '{"message": "boom"}').startswith("Discord 500: {")

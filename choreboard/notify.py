@@ -157,20 +157,50 @@ class DiscordSender:
     token: str
     api: str = "https://discord.com/api/v10"
     timeout: float = 15
+    # Discord REQUIRES this exact form for bots ("DiscordBot ($url, $version)");
+    # anything else can be refused before it reaches the API.
+    user_agent: str = "DiscordBot (https://github.com/beartums/choreboard, 0.6)"
 
     def _call(self, method: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
         req = urllib.request.Request(self.api + path, method=method, data=json.dumps(body).encode(),
                                      headers={"Authorization": f"Bot {self.token}", "Content-Type": "application/json",
-                                              "User-Agent": "choreboard (https://github.com/beartums/choreboard)"})
+                                              "User-Agent": self.user_agent})
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
-            raise RuntimeError(f"Discord {e.code}: {e.read()[:200].decode(errors='replace')}") from None
+            raw = e.read()[:400].decode(errors="replace")
+            raise RuntimeError(discord_reason(e.code, raw)) from None
 
     def send(self, address: str, title: str, body: str) -> None:
         dm = self._call("POST", "/users/@me/channels", {"recipient_id": address})
         self._call("POST", f"/channels/{dm['id']}/messages", {"content": f"**{title}**\n{body}"[:2000]})
+
+
+# Discord's JSON error codes worth translating into what to do about them.
+DISCORD_CODES = {
+    50007: "Discord won't let the bot DM this person: the bot must share a server with them, and their privacy "
+           "settings for that server must allow direct messages from members",
+    10013: "Discord doesn't know that user id -- check it (Developer Mode -> Copy User ID)",
+    50035: "Discord rejected the request as invalid -- check the user id is the numeric id, not a username",
+    40333: "Discord refused the request before the API (an internal or Cloudflare block)",
+}
+
+
+def discord_reason(status: int, raw: str) -> str:
+    """A Discord error in words: the code's meaning where known, else the
+    status and the start of the body."""
+    if status == 401:
+        return "Discord 401: the bot token is wrong or was reset -- paste it again in Settings"
+    try:
+        code = json.loads(raw).get("code")
+    except (ValueError, AttributeError):
+        code = None
+    if code in DISCORD_CODES:
+        return f"Discord {status} ({code}): {DISCORD_CODES[code]}"
+    if raw.lstrip().startswith("<"):
+        return f"Discord {status}: refused before reaching the API (an HTML page, not JSON)"
+    return f"Discord {status}: {raw[:200]}"
 
 
 def claim_due(db: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
