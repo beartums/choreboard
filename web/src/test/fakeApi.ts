@@ -106,6 +106,13 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     const occ = p.match(/^\/api\/occurrences\/([^/]+)\/(outcome|reassign|skip)$/);
     if (occ && method === "POST") {
       const e = s.entries.find((x) => x.id === decodeURIComponent(occ[1]))!;
+      if (occ[2] !== "outcome" && e.pending_swap && !body.pending) {
+        const ps = e.pending_swap;
+        const nm = (id: number) => s.people.find((x) => x.id === id)?.name ?? "?";
+        return json(409, { error: "this day is in a pending swap request", code: "pending_swap",
+                           request: { ...ps, kind: ps.kind ?? "swap", from_name: nm(ps.from_person), to_name: nm(ps.to_person) } });
+      }
+      if (occ[2] !== "outcome" && e.pending_swap) delete e.pending_swap;
       if (occ[2] === "outcome") {
         if (["failed", "covered", "failed_covered"].includes(body.status) && !body.note)
           return json(400, { error: `'${body.status}' needs a note saying why` });

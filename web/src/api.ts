@@ -180,10 +180,15 @@ export interface Me {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public data: Record<string, unknown> = {}) {
     super(message);
   }
 }
+
+/** How an admin's change settles a pending swap on the same day. */
+export type Settle = "approve" | "decline";
+export type PendingRequest = { id: number; kind: string; from_person: number; to_person: number;
+  from_name: string; to_name: string; reason: string };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -198,7 +203,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     const detail = Array.isArray(data.detail)
       ? data.detail.map((d: { loc?: unknown[]; msg: string }) => `${(d.loc ?? []).slice(-1)[0]}: ${d.msg}`).join("; ")
       : data.detail;
-    throw new ApiError(res.status, data.error ?? detail ?? `HTTP ${res.status}`);
+    throw new ApiError(res.status, data.error ?? detail ?? `HTTP ${res.status}`, data);
   }
   return data as T;
 }
@@ -221,13 +226,14 @@ export const api = {
 
   calendar: (from: string, to: string, personId?: number) =>
     call<Entry[]>("GET", `/api/calendar?from=${from}&to=${to}${personId ? `&person_id=${personId}` : ""}`),
-  reassign: (key: string, person_id: number, reason: string) =>
-    call<Entry>("POST", `/api/occurrences/${key}/reassign`, { person_id, reason }),
-  skip: (key: string, reason: string) => call<Entry>("POST", `/api/occurrences/${key}/skip`, { reason }),
+  reassign: (key: string, person_id: number, reason: string, pending?: Settle) =>
+    call<Entry>("POST", `/api/occurrences/${key}/reassign`, { person_id, reason, pending }),
+  skip: (key: string, reason: string, pending?: Settle) =>
+    call<Entry>("POST", `/api/occurrences/${key}/skip`, { reason, pending }),
   addOccurrence: (b: { chore_id: number; date: string; person_id: number; reason: string; due?: string | null }) =>
     call<Entry>("POST", "/api/occurrences", b),
-  swap: (a: string, b: string, reason: string) =>
-    call<{ group_id: string; a: Entry; b: Entry }>("POST", "/api/swaps", { a, b, reason }),
+  swap: (a: string, b: string, reason: string, pending?: Settle) =>
+    call<{ group_id: string; a: Entry; b: Entry }>("POST", "/api/swaps", { a, b, reason, pending }),
   proposeSwap: (a: string, b: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests", { a, b, reason }),
   answerSwap: (id: number, approve: boolean, reason = "") =>
     call<{ status: string }>("POST", `/api/swap-requests/${id}/${approve ? "approve" : "decline"}`, { reason }),

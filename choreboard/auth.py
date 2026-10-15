@@ -111,6 +111,8 @@ class Authenticator:
         auth = h.get("authorization", "")
         if auth.lower().startswith("bearer "):
             caller = self._token(auth[7:].strip(), h.get("x-choreboard-as", ""))
+            if h.get("x-choreboard-via"):
+                caller = self._via(caller, h["x-choreboard-via"])
         elif h.get("x-pomerium-jwt-assertion") and self.verifier is not None:
             email, name = self.verifier.email(h["x-pomerium-jwt-assertion"])
             caller = Caller(email, self._person(email, name), "pomerium")
@@ -122,6 +124,21 @@ class Authenticator:
         if method.upper() not in READ_METHODS and "write" not in caller.scopes:
             raise Forbidden("this token is read-only")
         return caller
+
+    def _via(self, caller: Caller, via_email: str) -> Caller:
+        """An admin acting AS someone (nav's "view as"): the token must be
+        able to act_as, and the real person must be an active admin. The
+        actor stays the person acted as -- their permissions apply -- with the
+        admin recorded alongside (via_id) on everything they change."""
+        if "act_as" not in caller.scopes or caller.person is None:
+            raise Forbidden("X-Choreboard-Via needs a token with act_as, naming someone with X-Choreboard-As")
+        admin = self.svc.person_by_email(via_email)
+        if admin is None or admin.get("role") != "admin":
+            raise Forbidden("only an admin can act as someone else")
+        if admin["id"] == caller.person["id"]:
+            return caller
+        person = {**caller.person, "via_id": admin["id"], "via_name": admin["name"]}
+        return Caller(caller.email, person, caller.via, caller.scopes, caller.token_id)
 
     def _token(self, raw: str, act_as: str) -> Caller:
         tok = self.svc.token_lookup(raw)

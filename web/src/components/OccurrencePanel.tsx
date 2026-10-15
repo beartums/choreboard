@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, timeWindow, type Chore, type Entry, type Person, type Status } from "../api";
+import { api, ApiError, timeWindow, type Chore, type Entry, type PendingRequest, type Person, type Settle,
+  type Status } from "../api";
 import { addDays, dayLabel, today } from "../dates";
 import { ErrorNote } from "./ErrorNote";
 
@@ -14,6 +15,8 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
 }) {
   const [mode, setMode] = useState<Mode>(null);
   const [error, setError] = useState<unknown>(null);
+  // An admin's change hit a pending swap: ask how to settle it, then retry.
+  const [settle, setSettle] = useState<{ req: PendingRequest; retry: (how: Settle) => Promise<unknown> } | null>(null);
   const chore = chores.find((c) => c.id === entry.chore_id);
   const name = (id: number | null) => people.find((p) => p.id === id)?.name ?? "?";
   const others = people.filter((p) => p.id !== entry.person_id);
@@ -24,9 +27,14 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: (pending?: Settle) => Promise<unknown>) {
     setError(null);
-    try { await fn(); onChanged(); } catch (err) { setError(err); }
+    setSettle(null);
+    try { await fn(); onChanged(); } catch (err) {
+      if (err instanceof ApiError && err.data.code === "pending_swap" && err.data.request) {
+        setSettle({ req: err.data.request as PendingRequest, retry: fn });
+      } else setError(err);
+    }
   }
 
   const recordDone = () => run(() => api.record(entry.id, { status: "done" }));
@@ -114,18 +122,31 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
           <OutcomeForm status={mode} points={chore?.points ?? 0} others={others} assignee={name(entry.person_id)}
             onSubmit={(b) => run(() => api.record(entry.id, b))} onCancel={() => setMode(null)} />
         ) : mode === "give" ? (
-          <GiveForm others={others} onSubmit={(pid, reason) => run(() => api.reassign(entry.id, pid, reason))} onCancel={() => setMode(null)} />
+          <GiveForm others={others} onSubmit={(pid, reason) => run((p) => api.reassign(entry.id, pid, reason, p))} onCancel={() => setMode(null)} />
         ) : mode === "request_undo" ? (
           <ReasonForm label="Why undo the swap?" submit="Ask them"
             onSubmit={(reason) => run(() => api.requestUndo(entry.id, reason))} onCancel={() => setMode(null)} />
         ) : mode === "skip" ? (
           <ReasonForm label="Why skip it?" submit="Skip this date" optional
-            onSubmit={(reason) => run(() => api.skip(entry.id, reason))} onCancel={() => setMode(null)} />
+            onSubmit={(reason) => run((p) => api.skip(entry.id, reason, p))} onCancel={() => setMode(null)} />
         ) : mode === "swap" ? (
           <SwapForm entry={entry} chores={chores} people={people} proposal={!can("swap")}
-            onSubmit={(other, reason) => run(() => can("swap") ? api.swap(entry.id, other, reason) : api.proposeSwap(entry.id, other, reason))}
+            onSubmit={(other, reason) => run((p) => can("swap") ? api.swap(entry.id, other, reason, p) : api.proposeSwap(entry.id, other, reason))}
             onCancel={() => setMode(null)} />
         ) : null}
+        {settle && (
+          <div className="note stack" role="alert">
+            <span>⇄ This is in a pending {settle.req.kind === "undo" ? "request to undo a swap" : "swap"}{" "}
+              ({settle.req.from_name} asked {settle.req.to_name}{settle.req.reason && ` — ${settle.req.reason}`}).
+              Doing this settles it first: approving {settle.req.kind === "undo" ? "undoes the swap" : "makes the swap"},
+              declining drops the request.</span>
+            <div className="actions">
+              <button onClick={() => run(() => settle.retry("approve"))}>Approve it, then do this</button>
+              <button onClick={() => run(() => settle.retry("decline"))}>Decline it, then do this</button>
+              <button className="ghost" onClick={() => setSettle(null)}>Never mind</button>
+            </div>
+          </div>
+        )}
         <ErrorNote error={error} />
       </div>
     </div>

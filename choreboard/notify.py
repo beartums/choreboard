@@ -71,14 +71,16 @@ def _now() -> str:
 
 def emit(db: sqlite3.Connection, kind: str, *, actor_id: int | None, subjects: Iterable[int] | None,
          title: str, body: str, chore_id: int | None = None, date: dt.date | None = None,
-         **payload: Any) -> int:
+         via_id: int | None = None, **payload: Any) -> int:
     """Record an event and queue its deliveries. `subjects` None means
     everyone (household events). Returns the event id."""
     if kind not in EVENTS:
         raise ValueError(f"unknown event {kind}")
     cur = db.execute(
-        "INSERT INTO events (kind, actor_id, chore_id, date, title, body, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (kind, actor_id, chore_id, date.isoformat() if date else None, title, body, json.dumps(payload, default=str)))
+        "INSERT INTO events (kind, actor_id, chore_id, date, title, body, payload, via_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (kind, actor_id, chore_id, date.isoformat() if date else None, title, body, json.dumps(payload, default=str),
+         via_id))
     event_id = int(cur.lastrowid)
     if subjects is None:
         people = [r[0] for r in db.execute("SELECT id FROM people WHERE active = 1")]

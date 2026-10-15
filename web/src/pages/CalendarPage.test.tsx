@@ -211,6 +211,20 @@ describe("what the server says I can do", () => {
     expect(within(panel).getByRole("button", { name: "Approve swap" })).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Decline" })).toBeInTheDocument();
   });
+
+  it("an admin's change to a pending day asks whether to approve or decline it first", async () => {
+    s.entries[6].pending_swap = { id: 9, from_person: 2, to_person: 1, with: s.entries[0].id, reason: "practice", side: "to" };
+    s.entries[6].can = ["approve_swap", "decline_swap", "skip", "give", "swap", "failed"];
+    show();
+    const panel = await open(6);
+    await userEvent.click(within(panel).getByRole("button", { name: "Skip this date" }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Skip this date" }));
+    expect(await within(panel).findByText(/Doing this settles it first/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Tucker asked Eric — practice/)).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Decline it, then do this" }));
+    await waitFor(() => expect(s.calls.filter((c) => c.path.endsWith("/skip")).map((c) => (c.body as any).pending))
+      .toEqual([undefined, "decline"]));
+  });
 });
 
 

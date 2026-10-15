@@ -237,6 +237,14 @@ MIGRATIONS: list[str] = [
     ALTER TABLE swap_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'swap';
     ALTER TABLE swap_requests ADD COLUMN undo_group TEXT;
     """,
+    # 9: changes an admin made AS someone else (through an act_as token, with
+    # the admin named in X-Choreboard-Via): who really did it.
+    """
+    ALTER TABLE outcomes ADD COLUMN via_id INTEGER REFERENCES people(id);
+    ALTER TABLE overrides ADD COLUMN via_id INTEGER REFERENCES people(id);
+    ALTER TABLE swap_requests ADD COLUMN via_id INTEGER REFERENCES people(id);
+    ALTER TABLE events ADD COLUMN via_id INTEGER REFERENCES people(id);
+    """,
 ]
 
 

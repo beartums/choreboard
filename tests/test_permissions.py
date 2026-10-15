@@ -6,7 +6,7 @@ import pytest
 
 from choreboard import policy, schema
 from choreboard.calendar import Pattern
-from choreboard.service import Conflict, Forbidden, Service
+from choreboard.service import Conflict, Forbidden, PendingSwap, Service
 
 D = dt.date
 MON, WED, SUN = D(2026, 10, 19), D(2026, 10, 21), D(2026, 10, 25)
@@ -189,13 +189,50 @@ def test_a_declined_undo_leaves_the_swap(h):
     assert h.svc.occurrence(key(h, SUN)).person_id == h.tucker["id"]
 
 
-def test_a_pending_swap_freezes_both_days(h):
+def test_a_pending_swap_freezes_both_days_until_an_admin_says_how_to_settle_it(h):
     a, b = key(h, WED), key(h, SUN)
     h.svc.propose_swap(h.tucker, a, b, "x")
     for fn in (lambda: h.svc.swap(h.eric, b, key(h, D(2026, 10, 22)), "y"),
                lambda: h.svc.reassign(h.eric, a, h.mom["id"], "y"),
                lambda: h.svc.skip(h.eric, b, "y")):
-        with pytest.raises(Conflict, match="pending swap"):
+        with pytest.raises(PendingSwap, match="pending swap") as e:
             fn()
+        assert e.value.request["from_person"] == h.tucker["id"]
     admin = {r["id"]: r for r in h.svc.calendar_json(h.eric, WED, SUN)}[f"1:{SUN}:rule:3"]
-    assert not {"swap", "give", "skip"} & set(admin["can"]) and "approve_swap" in admin["can"]
+    assert {"swap", "give", "skip"} <= set(admin["can"]) and "approve_swap" in admin["can"]
+    # Members still can't touch it (they can't reassign at all; their swap is refused).
+    with pytest.raises(Conflict, match="pending swap"):
+        h.svc.propose_swap(h.mom, key(h, D(2026, 10, 22)), a, "z")
+
+
+def test_an_admin_change_can_decline_the_pending_swap_first(h):
+    a, b = key(h, WED), key(h, SUN)
+    rid = h.svc.propose_swap(h.tucker, a, b, "x")["id"]
+    h.svc.reassign(h.eric, a, h.mom["id"], "y", pending="decline")
+    assert h.svc.request(rid)["status"] == "declined"
+    assert h.svc.occurrence(a).person_id == h.mom["id"] and h.svc.occurrence(b).person_id == h.eric["id"]
+
+
+def test_an_admin_change_can_approve_the_pending_swap_first(h):
+    a, b = key(h, WED), key(h, SUN)
+    rid = h.svc.propose_swap(h.tucker, a, b, "x")["id"]
+    h.svc.skip(h.eric, b, "y", pending="approve")
+    assert h.svc.request(rid)["status"] == "approved"
+    assert h.svc.occurrence(a).person_id == h.eric["id"]          # the swap happened
+    assert h.svc.occurrence(b, include_skipped=True).skipped                              # then the skip
+
+
+def test_acting_as_someone_records_the_admin_too(h):
+    k = key(h, MON)
+    at(h, 2026, 10, 19, 17)
+    as_tucker = {**h.tucker, "via_id": h.eric["id"]}
+    h.svc.record(as_tucker, k, "done")
+    row = h.svc.db.execute("SELECT recorded_by, via_id FROM outcomes").fetchone()
+    assert tuple(row) == (h.tucker["id"], h.eric["id"])
+    # Their permissions, not the admin's.
+    with pytest.raises(Forbidden):
+        h.svc.skip(as_tucker, key(h, WED), "y")
+    rid = h.svc.propose_swap(as_tucker, key(h, WED), key(h, SUN), "x")["id"]
+    ev = h.svc.db.execute("SELECT body, via_id FROM events WHERE kind = 'swap_requested'").fetchone()
+    assert "Tucker (Eric, as Tucker)" in ev[0] and ev[1] == h.eric["id"]
+    assert h.svc.db.execute("SELECT via_id FROM swap_requests WHERE id = ?", (rid,)).fetchone()[0] == h.eric["id"]

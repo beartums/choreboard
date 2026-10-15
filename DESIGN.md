@@ -211,3 +211,14 @@ day passes. `swap_requested` always reaches the other person's inbox.
 once; a member who's part of the swap asks (a swap request of kind `undo`),
 approved by the other side. While any request is pending, neither of its days
 can be swapped, given or skipped.
+
+**Settling a pending swap** (v0.9.0): an admin's swap, give or skip on a
+pending day says how to settle the request first (`pending: approve|decline`);
+without it the API answers 409 `code: pending_swap` with the request, and the
+UI asks. Members still can't override a pending day.
+
+**Acting as someone** (v0.9.0): with an `act_as` token, `X-Choreboard-Via:
+<admin email>` alongside `X-Choreboard-As` means an admin is acting as that
+person (nav's 👤). Choreboard checks the Via person is an active admin; the
+target's permissions apply; `via_id` is recorded on outcomes, overrides, swap
+requests and events, and notifications read "Tucker (Eric, as Tucker)".

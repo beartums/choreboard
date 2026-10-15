@@ -157,6 +157,18 @@ def test_tokens_read_only_and_act_as(client, home):
     # Tokens can't mint tokens or run setup.
     assert client.post("/api/tokens", json={"name": "x"}, headers=N).status_code == 400
 
+    # An admin acting as Tucker (nav's "view as"): Tucker's permissions, the admin on record.
+    V = {**N, "X-Choreboard-Via": "eric@example.com"}
+    me = client.get("/api/me", headers=V).json()["person"]
+    assert me["id"] == ids["tucker"] and me["via_name"] == "Eric"
+    assert client.post(f"/api/outcomes/{out['id']}/undo", json={"note": "oops"}, headers=V).status_code == 200
+    again = client.post(f"/api/occurrences/{mon['id']}/outcome", json={"status": "done"}, headers=V).json()
+    assert again["via_id"] == ids["eric"]
+    # Only an admin may be named as the one acting; and only with an act_as token.
+    assert client.get("/api/me", headers={**N, "X-Choreboard-Via": "cass@example.com"}).status_code == 403
+    assert client.get("/api/me", headers={**R, "X-Choreboard-As": "tucker@example.com",
+                                          "X-Choreboard-Via": "eric@example.com"}).status_code == 403
+
     client.delete(f"/api/tokens/{nav['id']}", headers=E)
     assert client.get("/api/me", headers=N).status_code == 401
 

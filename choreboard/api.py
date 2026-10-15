@@ -78,13 +78,18 @@ class RuleIn(BaseModel):
             raise Invalid(str(e)) from None
 
 
+Settle = Literal["approve", "decline"]
+
+
 class Reason(BaseModel):
     reason: str = ""
+    pending: Settle | None = Field(None, description="admins: settle a pending swap on this day first")
 
 
 class ReassignIn(BaseModel):
     person_id: int
     reason: str = ""
+    pending: Settle | None = None
 
 
 class AddIn(BaseModel):
@@ -100,6 +105,7 @@ class SwapIn(BaseModel):
     a: str = Field(description="occurrence id, chore:YYYY-MM-DD:rule|add:id")
     b: str
     reason: str
+    pending: Settle | None = Field(None, description="admins: settle pending swaps on these days first")
 
 
 class UndoSwapIn(BaseModel):
@@ -245,7 +251,12 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
 
     @app.exception_handler(Error)
     async def _service_error(_: Request, e: Error) -> JSONResponse:
-        return JSONResponse({"error": str(e)}, status_code=e.status)
+        body: dict[str, Any] = {"error": str(e)}
+        if getattr(e, "code", None):
+            body["code"] = e.code                                    # type: ignore[attr-defined]
+        if getattr(e, "request", None):
+            body["request"] = e.request                              # type: ignore[attr-defined]
+        return JSONResponse(body, status_code=e.status)
 
     @app.exception_handler(Unauthenticated)
     async def _unauth(_: Request, e: Unauthenticated) -> JSONResponse:
@@ -346,11 +357,11 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
 
     @app.post("/api/occurrences/{key}/reassign")
     def reassign(key: str, body: ReassignIn, a: dict = Depends(actor)) -> dict[str, Any]:
-        return _occ(svc.reassign(a, parse_key(key), body.person_id, body.reason))
+        return _occ(svc.reassign(a, parse_key(key), body.person_id, body.reason, body.pending))
 
     @app.post("/api/occurrences/{key}/skip")
     def skip(key: str, body: Reason, a: dict = Depends(actor)) -> dict[str, Any]:
-        return _occ(svc.skip(a, parse_key(key), body.reason))
+        return _occ(svc.skip(a, parse_key(key), body.reason, body.pending))
 
     @app.post("/api/occurrences", status_code=201)
     def add(body: AddIn, a: dict = Depends(actor)) -> dict[str, Any]:
@@ -358,7 +369,7 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
 
     @app.post("/api/swaps", status_code=201)
     def swap(body: SwapIn, a: dict = Depends(actor)) -> dict[str, Any]:
-        group = svc.swap(a, parse_key(body.a), parse_key(body.b), body.reason)
+        group = svc.swap(a, parse_key(body.a), parse_key(body.b), body.reason, body.pending)
         return {"group_id": group, "a": _occ(svc.occurrence(parse_key(body.a))),
                 "b": _occ(svc.occurrence(parse_key(body.b)))}
 
