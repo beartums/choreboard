@@ -76,7 +76,8 @@ export interface Entry {
   /** Why not, for the common actions: {"done": "opens at 4 PM"}. */
   cannot?: Record<string, string>;
   /** A tentative swap this is part of, awaiting the other side. */
-  pending_swap?: { id: number; from_person: number; to_person: number; with: string; reason: string; side: "from" | "to" } | null;
+  pending_swap?: { id: number; from_person: number; to_person: number; with: string; reason: string;
+                   side: "from" | "to"; kind?: "swap" | "undo" } | null;
 }
 
 export interface LedgerEntry {
@@ -230,6 +231,7 @@ export const api = {
   proposeSwap: (a: string, b: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests", { a, b, reason }),
   answerSwap: (id: number, approve: boolean, reason = "") =>
     call<{ status: string }>("POST", `/api/swap-requests/${id}/${approve ? "approve" : "decline"}`, { reason }),
+  requestUndo: (key: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests/undo", { key, reason }),
   cancelSwap: (id: number) => call<{ status: string }>("POST", `/api/swap-requests/${id}/cancel`),
   removeOverride: (groupOrId: string | number) =>
     call<{ removed: number }>("DELETE", `/api/overrides/${groupOrId}`),

@@ -231,6 +231,12 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX swap_requests_status ON swap_requests(status);
     """,
+    # 8: a request can also be to UNDO an approved swap (kind 'undo', naming
+    # the swap's override group), approved by the other side like a swap.
+    """
+    ALTER TABLE swap_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'swap';
+    ALTER TABLE swap_requests ADD COLUMN undo_group TEXT;
+    """,
 ]
 
 

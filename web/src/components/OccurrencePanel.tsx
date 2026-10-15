@@ -3,7 +3,7 @@ import { api, timeWindow, type Chore, type Entry, type Person, type Status } fro
 import { addDays, dayLabel, today } from "../dates";
 import { ErrorNote } from "./ErrorNote";
 
-type Mode = null | "covered" | "failed" | "failed_covered" | "give" | "skip" | "swap" | "undo";
+type Mode = null | "covered" | "failed" | "failed_covered" | "give" | "skip" | "swap" | "undo" | "request_undo";
 
 /** Everything you can do to one occurrence: record what happened, or plan a
  *  change for that date only. The household's rules (DESIGN.md) are enforced
@@ -60,8 +60,10 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
 
         {ps && (
           <div className="note stack">
-            <span>⇄ <strong>Swap pending</strong>: {ps.side === "from"
-              ? `${name(ps.from_person)} offered this to ${name(ps.to_person)}` : `${name(ps.from_person)} asked ${name(ps.to_person)} to take this`}
+            <span>⇄ <strong>{ps.kind === "undo" ? "Undo pending" : "Swap pending"}</strong>: {ps.kind === "undo"
+              ? `${name(ps.from_person)} asked to undo this swap`
+              : ps.side === "from" ? `${name(ps.from_person)} offered this to ${name(ps.to_person)}`
+              : `${name(ps.from_person)} asked ${name(ps.to_person)} to take this`}
               {ps.reason && ` — ${ps.reason}`}. Nothing changes until {name(ps.to_person)} approves.</span>
             <div className="actions">
               {can("approve_swap") && <button onClick={() => run(() => api.answerSwap(ps.id, true))}>Approve swap</button>}
@@ -100,6 +102,10 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
                 <button className="ghost" onClick={() => setMode("swap")}>{can("swap") ? "Swap with another day" : "Ask to swap…"}</button>}
               {!can("swap") && !can("propose_swap") && why("propose_swap") && <span className="muted">{why("propose_swap")}.</span>}
               {can("skip") && entry.rule_id != null && <button className="ghost" onClick={() => setMode("skip")}>Skip this date</button>}
+              {can("undo_swap") && <button className="ghost" onClick={undoChange}>Undo the swap</button>}
+              {can("request_undo") && <button className="ghost" onClick={() => setMode("request_undo")}>Ask to undo the swap…</button>}
+              {!can("undo_swap") && !can("request_undo") && (why("undo_swap") || why("request_undo")) &&
+                <span className="muted">Undo: {why("undo_swap") || why("request_undo")}.</span>}
               {can("undo_change") && isOverride && <button className="ghost" onClick={undoChange}>
                 {entry.group_id ? "Undo the swap" : entry.rule_id == null ? "Remove this extra one" : "Undo the change"}</button>}
             </Section>
@@ -109,6 +115,9 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
             onSubmit={(b) => run(() => api.record(entry.id, b))} onCancel={() => setMode(null)} />
         ) : mode === "give" ? (
           <GiveForm others={others} onSubmit={(pid, reason) => run(() => api.reassign(entry.id, pid, reason))} onCancel={() => setMode(null)} />
+        ) : mode === "request_undo" ? (
+          <ReasonForm label="Why undo the swap?" submit="Ask them"
+            onSubmit={(reason) => run(() => api.requestUndo(entry.id, reason))} onCancel={() => setMode(null)} />
         ) : mode === "skip" ? (
           <ReasonForm label="Why skip it?" submit="Skip this date" optional
             onSubmit={(reason) => run(() => api.skip(entry.id, reason))} onCancel={() => setMode(null)} />

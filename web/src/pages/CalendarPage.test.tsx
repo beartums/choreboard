@@ -223,3 +223,22 @@ describe("covered chores", () => {
     expect(btn).toHaveTextContent("covering for Tucker");
   });
 });
+
+
+describe("undoing a swap", () => {
+  it("a member asks; the panel says why when they can't", async () => {
+    s.entries[6] = { ...s.entries[6], group_id: "sw_1", source: "override", override_id: 3, scheduled_person_id: 2,
+                     can: ["request_undo"], cannot: {} };
+    show();
+    const panel = await open(6);
+    await userEvent.click(within(panel).getByRole("button", { name: "Ask to undo the swap…" }));
+    expect(within(panel).getByLabelText("Why undo the swap?")).toBeInTheDocument();
+  });
+
+  it("an older swap under a newer one says to undo that first", async () => {
+    s.entries[6] = { ...s.entries[6], group_id: "sw_1", can: [], cannot: { undo_swap: "a later swap on Sun Oct 25 has to be undone first" } };
+    show();
+    const panel = await open(6);
+    expect(within(panel).getByText(/Undo: a later swap on Sun Oct 25 has to be undone first\./)).toBeInTheDocument();
+  });
+});

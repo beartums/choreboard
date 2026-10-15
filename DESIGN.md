@@ -204,3 +204,10 @@ both days carry `pending_swap` and nothing moves -- until the other side
 approves (the swap runs, after re-checking both chores are still as they
 were) or declines; the asker can cancel; a request expires when its earlier
 day passes. `swap_requested` always reaches the other person's inbox.
+
+**Undoing swaps** (v0.8.2): swaps stack, and an undo peels the newest off first
+-- a swap can only be undone while it's the latest change on both its days
+(otherwise: "a later swap on <day> has to be undone first"). Admins undo at
+once; a member who's part of the swap asks (a swap request of kind `undo`),
+approved by the other side. While any request is pending, neither of its days
+can be swapped, given or skipped.

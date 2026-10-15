@@ -150,3 +150,52 @@ def test_capabilities_match_the_rules(h):
     admin = h.svc.calendar_json(h.eric, MON, MON)[0]
     assert {"done", "failed", "covered", "skip", "give", "swap"} <= set(admin["can"])
     assert "propose_swap" not in admin["can"], "admins swap outright"
+
+
+def test_swaps_undo_newest_first(h):
+    """Swap on swap: an undo peels back one at a time."""
+    wed, sun, thu = key(h, WED), key(h, SUN), key(h, D(2026, 10, 22))
+    first = h.svc.swap(h.eric, wed, sun, "first")            # Wed: Eric, Sun: Tucker
+    second = h.svc.swap(h.eric, sun, thu, "second")          # Sun: Mom, Thu: Tucker
+    from choreboard.service import Conflict as C
+    with pytest.raises(C, match="later swap on Sun Oct 25 has to be undone first"):
+        h.svc.remove_override_group(h.eric, first)
+    admin_sun = {r["id"]: r for r in h.svc.calendar_json(h.eric, WED, SUN)}
+    assert "undo_swap" in admin_sun[f"1:{SUN}:rule:3"]["can"], "the newest is undoable"
+    assert "later swap" in admin_sun[f"1:{WED}:rule:1"]["cannot"]["undo_swap"], "the older says why not"
+    h.svc.remove_override_group(h.eric, second)
+    assert h.svc.occurrence(sun).person_id == h.tucker["id"], "back to the first swap's answer"
+    h.svc.remove_override_group(h.eric, first)
+    assert h.svc.occurrence(sun).person_id == h.eric["id"], "back to the schedule"
+
+
+def test_a_member_asks_to_undo_and_the_other_side_approves(h):
+    wed, sun = key(h, WED), key(h, SUN)
+    h.svc.swap(h.eric, wed, sun, "first")                     # Tucker now has Sunday
+    with pytest.raises(Forbidden):
+        h.svc.request_undo(h.mom, sun, "not mine")
+    req = h.svc.request_undo(h.tucker, sun, "plans changed")
+    assert (req["kind"], req["to_person"]) == ("undo", h.eric["id"])
+    row = {r["id"]: r for r in h.svc.calendar_json(h.tucker, WED, SUN)}[f"1:{SUN}:rule:3"]
+    assert row["pending_swap"]["kind"] == "undo" and "request_undo" not in row["can"]
+    assert h.svc.answer_swap(h.eric, req["id"], True)["status"] == "approved"
+    assert h.svc.occurrence(sun).person_id == h.eric["id"] and h.svc.occurrence(wed).person_id == h.tucker["id"]
+
+
+def test_a_declined_undo_leaves_the_swap(h):
+    h.svc.swap(h.eric, key(h, WED), key(h, SUN), "first")
+    req = h.svc.request_undo(h.tucker, key(h, SUN), "x")
+    h.svc.answer_swap(h.eric, req["id"], False, "no")
+    assert h.svc.occurrence(key(h, SUN)).person_id == h.tucker["id"]
+
+
+def test_a_pending_swap_freezes_both_days(h):
+    a, b = key(h, WED), key(h, SUN)
+    h.svc.propose_swap(h.tucker, a, b, "x")
+    for fn in (lambda: h.svc.swap(h.eric, b, key(h, D(2026, 10, 22)), "y"),
+               lambda: h.svc.reassign(h.eric, a, h.mom["id"], "y"),
+               lambda: h.svc.skip(h.eric, b, "y")):
+        with pytest.raises(Conflict, match="pending swap"):
+            fn()
+    admin = {r["id"]: r for r in h.svc.calendar_json(h.eric, WED, SUN)}[f"1:{SUN}:rule:3"]
+    assert not {"swap", "give", "skip"} & set(admin["can"]) and "approve_swap" in admin["can"]
