@@ -108,6 +108,12 @@ class SwapIn(BaseModel):
     pending: Settle | None = Field(None, description="admins: settle pending swaps on these days first")
 
 
+class GiveRequestIn(BaseModel):
+    key: str = Field(description="my chore: chore:YYYY-MM-DD:rule:id")
+    person_id: int
+    reason: str
+
+
 class UndoSwapIn(BaseModel):
     key: str = Field(description="my side of the swap: chore:YYYY-MM-DD:rule:id")
     reason: str
@@ -382,6 +388,11 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     def propose(body: SwapIn, a: dict = Depends(actor)) -> dict[str, Any]:
         """Offer my chore `a` for someone else's `b`; tentative until they approve."""
         return svc.propose_swap(a, parse_key(body.a), parse_key(body.b), body.reason)
+
+    @app.post("/api/swap-requests/give", status_code=201)
+    def request_give(body: GiveRequestIn, a: dict = Depends(actor)) -> dict[str, Any]:
+        """Ask someone to take my chore that day; they accept or decline."""
+        return svc.propose_give(a, parse_key(body.key), body.person_id, body.reason)
 
     @app.post("/api/swap-requests/undo", status_code=201)
     def request_undo(body: UndoSwapIn, a: dict = Depends(actor)) -> dict[str, Any]:

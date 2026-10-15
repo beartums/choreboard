@@ -18,6 +18,23 @@ describe("first visit", () => {
   });
 });
 
+describe("acting as someone", () => {
+  it("an admin picks a person; every request then goes as them, until they stop", async () => {
+    const tucker = { id: 2, name: "Tucker", color: "", email: "t@x", role: "member" as const, active: 1 };
+    const s = fakeApi();
+    s.people.push(tucker);
+    renderAt("/calendar");
+    await userEvent.click(await screen.findByRole("button", { name: "Act as someone else" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Tucker" }));
+    const stop = await screen.findByRole("button", { name: "👤 as Tucker ✕" });
+    expect(s.calls.filter((c) => c.path === "/api/me").at(-1)?.actAs).toBe("2");
+    expect(screen.queryByRole("link", { name: "People" })).toBeNull();       // Tucker's view
+    await userEvent.click(stop);
+    expect(await screen.findByRole("link", { name: "People" })).toBeInTheDocument();
+    expect(s.calls.filter((c) => c.path === "/api/me").at(-1)?.actAs).toBeUndefined();
+  });
+});
+
 describe("people", () => {
   it("adds, edits and removes someone", async () => {
     const s = fakeApi();

@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 import jwt
 
-from .service import Forbidden, Service
+from .service import Error, Forbidden, Service
 
 READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 # Pomerium stamps `iat` (and `exp`) from ITS clock; this pod's clock is
@@ -121,6 +121,8 @@ class Authenticator:
             caller = Caller(email, self._person(email, ""), "dev")
         else:
             raise Unauthenticated("sign in through Pomerium, or send an API token")
+        if caller.via != "token" and h.get("x-choreboard-act-as"):
+            caller = self._act_as(caller, h["x-choreboard-act-as"])
         if method.upper() not in READ_METHODS and "write" not in caller.scopes:
             raise Forbidden("this token is read-only")
         return caller
@@ -138,6 +140,24 @@ class Authenticator:
         if admin["id"] == caller.person["id"]:
             return caller
         person = {**caller.person, "via_id": admin["id"], "via_name": admin["name"]}
+        return Caller(caller.email, person, caller.via, caller.scopes, caller.token_id)
+
+    def _act_as(self, caller: Caller, person_id: str) -> Caller:
+        """An admin signed in to the app acting as someone (the header's
+        person id): their permissions, the admin recorded as via_id -- as
+        X-Choreboard-Via does for nav."""
+        me = caller.person
+        if me is None or me.get("role") != "admin" or not me.get("active", 1):
+            raise Forbidden("only an admin can act as someone else")
+        try:
+            target = self.svc.person(int(person_id))
+        except (ValueError, Error):
+            raise Forbidden("no such person to act as") from None
+        if not target.get("active", 1):
+            raise Forbidden("they're no longer active")
+        if target["id"] == me["id"]:
+            return caller
+        person = {**target, "via_id": me["id"], "via_name": me["name"]}
         return Caller(caller.email, person, caller.via, caller.scopes, caller.token_id)
 
     def _token(self, raw: str, act_as: str) -> Caller:

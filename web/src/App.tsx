@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
-import { api, type Me } from "./api";
+import { api, ApiError, getActingAs, setActingAs, type Me, type Person } from "./api";
 import { ErrorNote } from "./components/ErrorNote";
 import { CalendarPage } from "./pages/CalendarPage";
 import { ChoreDetail } from "./pages/ChoreDetail";
@@ -19,18 +19,27 @@ export function App() {
   const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(() => {
-    api.me().then(setMe, setError);
+    api.me().then(setMe, (err) => {
+      // Acting as someone who's gone (or you're no longer an admin): be yourself.
+      if (getActingAs() && err instanceof ApiError && err.status === 403) {
+        setActingAs(null);
+        api.me().then(setMe, setError);
+      } else setError(err);
+    });
   }, []);
+  const actAs = useCallback((id: number | null) => { setActingAs(id); setMe(null); load(); }, [load]);
   useEffect(load, [load]);
 
   if (error) return <main className="page"><ErrorNote error={error} /></main>;
-  if (me && !me.needs_setup) return <Shell me={me} />;
+  // Keyed by who you're acting as, so every page reloads as them.
+  if (me && !me.needs_setup) return <Shell key={me.person?.id ?? 0} me={me} actAs={actAs} />;
   if (!me) return <main className="page"><p className="muted">Loading…</p></main>;
   return <SetupPage email={me.email} onDone={load} />;
 }
 
-function Shell({ me }: { me: Me }) {
+function Shell({ me, actAs }: { me: Me; actAs: (id: number | null) => void }) {
   const { unread } = useUnread();
+  const p = me.person;
   return (
     <MeContext.Provider value={me.person}>
     <div className="shell">
@@ -45,7 +54,12 @@ function Shell({ me }: { me: Me }) {
             Inbox{unread > 0 && <span className="count" aria-hidden>{unread > 99 ? "99+" : unread}</span>}
           </NavLink>
         </nav>
-        <NavLink to="/notifications" className="who" title={`${me.email} · notification settings`}>{me.person?.name}</NavLink>
+        {p?.via_name ? (
+          <button className="acting" onClick={() => actAs(null)} title={`You are ${p.via_name}, acting as ${p.name}. Click to stop.`}>
+            👤 as {p.name} ✕
+          </button>
+        ) : p?.role === "admin" && <ActAsPicker me={p} onPick={actAs} />}
+        <NavLink to="/notifications" className="who" title={`${me.email} · notification settings`}>{p?.via_name ?? p?.name}</NavLink>
       </header>
       <main className="page">
         <Routes>
@@ -63,5 +77,26 @@ function Shell({ me }: { me: Me }) {
       </main>
     </div>
     </MeContext.Provider>
+  );
+}
+
+/** Admins: act as someone -- their view and permissions, recorded as you. */
+function ActAsPicker({ me, onPick }: { me: Person; onPick: (id: number) => void }) {
+  const [people, setPeople] = useState<Person[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (open && !people) api.people().then(setPeople, () => setPeople([])); }, [open, people]);
+  return (
+    <div className="act-as">
+      <button className="ghost" aria-label="Act as someone else" aria-expanded={open} title="Act as someone else"
+        onClick={() => setOpen(!open)}>👤</button>
+      {open && (
+        <div className="act-as-menu" role="menu" aria-label="Act as">
+          <span className="muted">Act as:</span>
+          {(people ?? []).filter((x) => x.id !== me.id).map((x) => (
+            <button key={x.id} role="menuitem" className="chip" onClick={() => { setOpen(false); onPick(x.id); }}>{x.name}</button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

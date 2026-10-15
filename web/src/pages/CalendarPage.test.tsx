@@ -212,6 +212,20 @@ describe("what the server says I can do", () => {
     expect(within(panel).getByRole("button", { name: "Decline" })).toBeInTheDocument();
   });
 
+  it("a member asks someone to take their chore; it shows as a pending hand-off", async () => {
+    const TUCKER = PEOPLE[1];
+    s.me = { ...s.me, person: TUCKER };
+    s.entries[0].can = ["propose_swap", "propose_give"];
+    render(<MemoryRouter><CalendarPage me={TUCKER} /></MemoryRouter>);
+    const panel = await open(0);
+    await userEvent.click(within(panel).getByRole("button", { name: "Ask someone to take it…" }));
+    await userEvent.selectOptions(within(panel).getByLabelText("Ask"), "Mom");
+    await userEvent.type(within(panel).getByLabelText("Why"), "practice");
+    await userEvent.click(within(panel).getByRole("button", { name: "Ask them" }));
+    await waitFor(() => expect(s.calls.find((c) => c.path === "/api/swap-requests/give")?.body)
+      .toEqual({ key: s.entries[0].id, person_id: 4, reason: "practice" }));
+  });
+
   it("an admin's change to a pending day asks whether to approve or decline it first", async () => {
     s.entries[6].pending_swap = { id: 9, from_person: 2, to_person: 1, with: s.entries[0].id, reason: "practice", side: "to" };
     s.entries[6].can = ["approve_swap", "decline_swap", "skip", "give", "swap", "failed"];

@@ -326,3 +326,16 @@ def test_member_swap_request_over_http(client, home):
     ok = client.post(f"/api/swap-requests/{rid}/approve", json={"reason": "sure"}, headers=E)
     assert ok.status_code == 200 and ok.json()["status"] == "approved"
     assert day(client, E, "2026-10-21")[0]["person_id"] == ids["eric"]
+
+
+def test_an_admin_signed_in_can_act_as_someone(client, home):
+    E, ids = home["E"], home["ids"]
+    A = {**E, "X-Choreboard-Act-As": str(ids["tucker"])}
+    me = client.get("/api/me", headers=A).json()["person"]
+    assert me["id"] == ids["tucker"] and me["via_name"] == "Eric" and me["role"] == "member"
+    # Tucker's permissions apply: no admin pages.
+    assert client.get("/api/tokens", headers=A).status_code == 403
+    # Members can't act as anyone; nor can a bad id.
+    T = {**as_("tucker@example.com"), "X-Choreboard-Act-As": str(ids["eric"])}
+    assert client.get("/api/me", headers=T).status_code == 403
+    assert client.get("/api/me", headers={**E, "X-Choreboard-Act-As": "999"}).status_code == 403

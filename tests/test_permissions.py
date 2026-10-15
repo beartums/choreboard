@@ -6,7 +6,8 @@ import pytest
 
 from choreboard import policy, schema
 from choreboard.calendar import Pattern
-from choreboard.service import Conflict, Forbidden, PendingSwap, Service
+
+from choreboard.service import Conflict, Forbidden, PendingSwap, Service, key_str
 
 D = dt.date
 MON, WED, SUN = D(2026, 10, 19), D(2026, 10, 21), D(2026, 10, 25)
@@ -236,3 +237,34 @@ def test_acting_as_someone_records_the_admin_too(h):
     ev = h.svc.db.execute("SELECT body, via_id FROM events WHERE kind = 'swap_requested'").fetchone()
     assert "Tucker (Eric, as Tucker)" in ev[0] and ev[1] == h.eric["id"]
     assert h.svc.db.execute("SELECT via_id FROM swap_requests WHERE id = ?", (rid,)).fetchone()[0] == h.eric["id"]
+
+
+def test_a_member_can_ask_someone_to_take_their_chore(h):
+    k = key(h, WED)                                     # Tucker's
+    can = {r["id"]: r for r in h.svc.calendar_json(h.tucker, WED, WED)}[key_str(k)]["can"]
+    assert "propose_give" in can
+    with pytest.raises(Forbidden):
+        h.svc.reassign(h.tucker, k, h.mom["id"], "busy")
+    with pytest.raises(Forbidden):
+        h.svc.propose_give(h.mom, k, h.mom["id"], "mine now")      # not hers to give
+    rid = h.svc.propose_give(h.tucker, k, h.mom["id"], "practice")["id"]
+    assert h.svc.occurrence(k).person_id == h.tucker["id"], "tentative until she accepts"
+    entry = {r["id"]: r for r in h.svc.calendar_json(h.mom, WED, WED)}[key_str(k)]
+    assert entry["pending_swap"]["kind"] == "give" and entry["pending_swap"]["side"] == "from"
+    assert "approve_swap" in entry["can"]
+    with pytest.raises(Conflict, match="pending"):
+        h.svc.propose_swap(h.tucker, k, key(h, SUN), "x")
+    with pytest.raises(Forbidden):
+        h.svc.answer_swap(h.tucker, rid, True)
+    h.svc.answer_swap(h.mom, rid, True)
+    assert h.svc.occurrence(k).person_id == h.mom["id"]
+    ev = h.svc.db.execute("SELECT title FROM events WHERE kind = 'swap_answered'").fetchone()[0]
+    assert ev.startswith("Hand-off approved")
+
+
+def test_a_declined_hand_off_changes_nothing(h):
+    k = key(h, WED)
+    rid = h.svc.propose_give(h.tucker, k, h.mom["id"], "practice")["id"]
+    h.svc.answer_swap(h.mom, rid, False)
+    assert h.svc.occurrence(k).person_id == h.tucker["id"]
+    assert h.svc.request(rid)["status"] == "declined"

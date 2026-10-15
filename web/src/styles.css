@@ -164,3 +164,13 @@ a.button { display: inline-block; text-decoration: none; border: 1px solid var(-
 a.button.ghost { background: transparent; color: var(--accent); }
 
 .badge.tentative { border: 1px dashed var(--accent); background: transparent; }
+
+.acting { font-size: .85rem; padding: .25rem .6rem; border-radius: 999px; border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--fg); cursor: pointer; white-space: nowrap; }
+.act-as { position: relative; }
+.act-as-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center;
+  gap: .3rem; width: max-content; max-width: min(280px, calc(100vw - 32px)); padding: .4rem .5rem; background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgb(0 0 0 / .12); }
+.act-as-menu .chip { font-size: .8rem; padding: .1rem .55rem; border-radius: 999px; border: 1px solid var(--line);
+  background: none; color: var(--fg); cursor: pointer; }
+.act-as-menu .chip:hover, .act-as-menu .chip:focus-visible { border-color: var(--accent); }

@@ -222,3 +222,10 @@ UI asks. Members still can't override a pending day.
 person (nav's 👤). Choreboard checks the Via person is an active admin; the
 target's permissions apply; `via_id` is recorded on outcomes, overrides, swap
 requests and events, and notifications read "Tucker (Eric, as Tucker)".
+In the app itself (v0.10.0) an admin picks 👤 → a person; the browser sends
+`X-Choreboard-Act-As: <person id>` with the Pomerium-signed request, checked
+and recorded the same way. Per tab (sessionStorage); a 403 drops it.
+
+**Hand-offs** (v0.10.0): a member can ask someone to take their chore that day
+(a request of kind `give`, both sides the same occurrence). Tentative until
+the other person accepts; then it's a reassign override. Admins give directly.

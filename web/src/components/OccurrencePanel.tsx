@@ -4,7 +4,7 @@ import { api, ApiError, timeWindow, type Chore, type Entry, type PendingRequest,
 import { addDays, dayLabel, today } from "../dates";
 import { ErrorNote } from "./ErrorNote";
 
-type Mode = null | "covered" | "failed" | "failed_covered" | "give" | "skip" | "swap" | "undo" | "request_undo";
+type Mode = null | "covered" | "failed" | "failed_covered" | "give" | "propose_give" | "skip" | "swap" | "undo" | "request_undo";
 
 /** Everything you can do to one occurrence: record what happened, or plan a
  *  change for that date only. The household's rules (DESIGN.md) are enforced
@@ -68,13 +68,14 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
 
         {ps && (
           <div className="note stack">
-            <span>⇄ <strong>{ps.kind === "undo" ? "Undo pending" : "Swap pending"}</strong>: {ps.kind === "undo"
+            <span>⇄ <strong>{ps.kind === "undo" ? "Undo pending" : ps.kind === "give" ? "Hand-off pending" : "Swap pending"}</strong>: {ps.kind === "undo"
               ? `${name(ps.from_person)} asked to undo this swap`
+              : ps.kind === "give" ? `${name(ps.from_person)} asked ${name(ps.to_person)} to take this`
               : ps.side === "from" ? `${name(ps.from_person)} offered this to ${name(ps.to_person)}`
               : `${name(ps.from_person)} asked ${name(ps.to_person)} to take this`}
               {ps.reason && ` — ${ps.reason}`}. Nothing changes until {name(ps.to_person)} approves.</span>
             <div className="actions">
-              {can("approve_swap") && <button onClick={() => run(() => api.answerSwap(ps.id, true))}>Approve swap</button>}
+              {can("approve_swap") && <button onClick={() => run(() => api.answerSwap(ps.id, true))}>{ps.kind === "give" ? "Accept" : "Approve swap"}</button>}
               {can("decline_swap") && <button className="ghost" onClick={() => run(() => api.answerSwap(ps.id, false))}>Decline</button>}
               {can("cancel_swap") && <button className="ghost" onClick={() => run(() => api.cancelSwap(ps.id))}>Cancel request</button>}
             </div>
@@ -106,6 +107,7 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
             </Section>
             <Section title={admin ? "Plan a change, this date only" : "Swap"}>
               {can("give") && entry.rule_id != null && <button className="ghost" onClick={() => setMode("give")}>Give to someone</button>}
+              {can("propose_give") && !ps && <button className="ghost" onClick={() => setMode("propose_give")}>Ask someone to take it…</button>}
               {(can("swap") || can("propose_swap")) && entry.rule_id != null && !ps &&
                 <button className="ghost" onClick={() => setMode("swap")}>{can("swap") ? "Swap with another day" : "Ask to swap…"}</button>}
               {!can("swap") && !can("propose_swap") && why("propose_swap") && <span className="muted">{why("propose_swap")}.</span>}
@@ -123,6 +125,9 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
             onSubmit={(b) => run(() => api.record(entry.id, b))} onCancel={() => setMode(null)} />
         ) : mode === "give" ? (
           <GiveForm others={others} onSubmit={(pid, reason) => run((p) => api.reassign(entry.id, pid, reason, p))} onCancel={() => setMode(null)} />
+        ) : mode === "propose_give" ? (
+          <GiveForm others={others} proposal onSubmit={(pid, reason) => run(() => api.requestGive(entry.id, pid, reason))}
+            onCancel={() => setMode(null)} />
         ) : mode === "request_undo" ? (
           <ReasonForm label="Why undo the swap?" submit="Ask them"
             onSubmit={(reason) => run(() => api.requestUndo(entry.id, reason))} onCancel={() => setMode(null)} />
@@ -220,19 +225,23 @@ function OutcomeForm({ status, points, others, assignee, onSubmit, onCancel }: {
   );
 }
 
-function GiveForm({ others, onSubmit, onCancel }: { others: Person[]; onSubmit: (pid: number, r: string) => void; onCancel: () => void }) {
+function GiveForm({ others, proposal, onSubmit, onCancel }: {
+  others: Person[]; proposal?: boolean; onSubmit: (pid: number, r: string) => void; onCancel: () => void;
+}) {
   const [pid, setPid] = useState<number | "">(others[0]?.id ?? "");
   const [reason, setReason] = useState("");
   return (
     <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); if (pid !== "") onSubmit(pid, reason.trim()); }}>
-      <label>Give it to
+      <label>{proposal ? "Ask" : "Give it to"}
         <select value={pid} onChange={(e) => setPid(Number(e.target.value))}>
           {others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
-      <label>Why<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="optional" /></label>
+      <label>Why<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={proposal ? "" : "optional"}
+        required={proposal} /></label>
+      {proposal && <p className="muted">They'll be asked to accept; it stays yours until they do.</p>}
       <div className="actions">
-        <button type="submit" disabled={pid === ""}>Give it</button>
+        <button type="submit" disabled={pid === "" || (proposal && !reason.trim())}>{proposal ? "Ask them" : "Give it"}</button>
         <button type="button" className="ghost" onClick={onCancel}>Back</button>
       </div>
     </form>

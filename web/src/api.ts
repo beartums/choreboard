@@ -9,6 +9,21 @@ export interface Person {
   email: string | null;
   role: "admin" | "member";
   active: number;
+  /** Set while an admin is acting as this person: the admin. */
+  via_id?: number;
+  via_name?: string;
+}
+
+/** An admin acting as someone in this tab (X-Choreboard-Act-As). Kept for
+ *  the tab only: a new tab, or a reload after closing it, is yourself. */
+const ACT_KEY = "choreboard.actAs";
+let actingAs: number | null = (() => {
+  try { const v = sessionStorage.getItem(ACT_KEY); return v ? Number(v) : null; } catch { return null; }
+})();
+export function getActingAs(): number | null { return actingAs; }
+export function setActingAs(id: number | null): void {
+  actingAs = id;
+  try { id ? sessionStorage.setItem(ACT_KEY, String(id)) : sessionStorage.removeItem(ACT_KEY); } catch { /* fine */ }
 }
 
 export interface Chore {
@@ -77,7 +92,7 @@ export interface Entry {
   cannot?: Record<string, string>;
   /** A tentative swap this is part of, awaiting the other side. */
   pending_swap?: { id: number; from_person: number; to_person: number; with: string; reason: string;
-                   side: "from" | "to"; kind?: "swap" | "undo" } | null;
+                   side: "from" | "to"; kind?: "swap" | "undo" | "give" } | null;
 }
 
 export interface LedgerEntry {
@@ -191,9 +206,12 @@ export type PendingRequest = { id: number; kind: string; from_person: number; to
   from_name: string; to_name: string; reason: string };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (actingAs) headers["x-choreboard-act-as"] = String(actingAs);
   const res = await fetch(path, {
     method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 204) return undefined as T;
@@ -237,6 +255,8 @@ export const api = {
   proposeSwap: (a: string, b: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests", { a, b, reason }),
   answerSwap: (id: number, approve: boolean, reason = "") =>
     call<{ status: string }>("POST", `/api/swap-requests/${id}/${approve ? "approve" : "decline"}`, { reason }),
+  requestGive: (key: string, person_id: number, reason: string) =>
+    call<{ id: number }>("POST", "/api/swap-requests/give", { key, person_id, reason }),
   requestUndo: (key: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests/undo", { key, reason }),
   cancelSwap: (id: number) => call<{ status: string }>("POST", `/api/swap-requests/${id}/cancel`),
   removeOverride: (groupOrId: string | number) =>

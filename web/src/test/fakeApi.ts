@@ -16,7 +16,7 @@ export interface FakeState {
   inbox: InboxItem[];
   settings: { can_store_secrets: boolean; key_env: string; fields: any[]; configured: string[] };
   tokens: any[];
-  calls: { method: string; path: string; body?: unknown }[];
+  calls: { method: string; path: string; body?: unknown; actAs?: string }[];
 }
 
 export function fakeApi(init: Partial<FakeState> = {}): FakeState {
@@ -46,7 +46,13 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
     const p = url.pathname;
     const id = Number(p.split("/").pop());
 
-    if (p === "/api/me") return json(200, s.me);
+    const actAs = (opts?.headers as Record<string, string> | undefined)?.["x-choreboard-act-as"];
+    s.calls[s.calls.length - 1].actAs = actAs;
+    if (p === "/api/me") {
+      const target = actAs ? s.people.find((x) => x.id === Number(actAs)) : null;
+      return json(200, target && s.me.person
+        ? { ...s.me, person: { ...target, via_id: s.me.person.id, via_name: s.me.person.name } } : s.me);
+    }
     if (p === "/api/setup" && method === "POST") {
       const person = { id: 1, name: body.name, color: "", email: s.me.email, role: "admin" as const, active: 1 };
       s.people = [person];
@@ -123,6 +129,13 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
       if (occ[2] === "reassign") Object.assign(e, { scheduled_person_id: e.person_id, person_id: body.person_id, override_id: next++, source: "override", reason: body.reason });
       if (occ[2] === "skip") Object.assign(e, { skipped: true, override_id: next++, source: "override", reason: body.reason });
       return json(200, e);
+    }
+    if (p === "/api/swap-requests/give" && method === "POST") {
+      const e = s.entries.find((x) => x.id === body.key)!;
+      const id = next++;
+      e.pending_swap = { id, from_person: e.person_id, to_person: body.person_id, with: e.id, reason: body.reason,
+                         side: "from", kind: "give" };
+      return json(201, { id });
     }
     if (p === "/api/swaps" && method === "POST") {
       const a = s.entries.find((x) => x.id === body.a)!, b2 = s.entries.find((x) => x.id === body.b)!;
