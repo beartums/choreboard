@@ -145,7 +145,12 @@ interface ItemCtx {
 /** One occurrence. Full in the agenda; a chip (icon, person, state) in the grids. */
 function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }) {
   const c = ctx.chore(e.chore_id);
-  const p = ctx.person(e.person_id);
+  // Covered: show the person who DID it; whose it was goes in the detail.
+  const doer = e.outcome?.done_by_id;
+  const covered = !!e.outcome && (e.outcome.status === "covered" || e.outcome.status === "failed_covered")
+    && doer != null && doer !== e.person_id;
+  const p = ctx.person(covered ? doer! : e.person_id);
+  const forWhom = covered ? ctx.person(e.person_id)?.name : null;
   const moved = e.scheduled_person_id != null;
   const cls = `occ${compact ? " chip" : ""}${e.skipped ? " skipped" : ""}${e.outcome ? ` st-${e.outcome.status}` : ""}`;
   const state = e.skipped ? "Skipped" : e.outcome ? STATUS_LABEL[e.outcome.status] : e.pending_swap ? "Swap pending"
@@ -153,7 +158,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
   if (compact) {
     return (
       <button className={cls} onClick={() => ctx.open(e)}
-        aria-label={`${c?.title ?? "Chore"}, ${p?.name ?? "?"}${state ? `, ${state}` : ""}`}
+        aria-label={`${c?.title ?? "Chore"}, ${p?.name ?? "?"}${covered ? ` for ${forWhom}` : ""}${state ? `, ${state}` : ""}`}
         title={`${c?.title ?? "Chore"} — ${p?.name}${timeWindow(e.available, e.due) ? `, ${timeWindow(e.available, e.due)}` : ""}${state ? ` (${state})` : ""}`}>
         <span aria-hidden>{c?.icon || "•"}</span>
         <span className={`swatch c-${p?.color || "none"}`} aria-hidden />
@@ -171,6 +176,7 @@ function Item({ e, ctx, compact }: { e: Entry; ctx: ItemCtx; compact?: boolean }
           <span className={`swatch c-${p?.color || "none"}`} aria-hidden /> {p?.name ?? "?"}
           {timeWindow(e.available, e.due) && ` · ${timeWindow(e.available, e.due)}`}
           {moved && ` · instead of ${ctx.person(e.scheduled_person_id)?.name}`}
+          {covered && (e.outcome!.status === "covered" ? ` · covering for ${forWhom}` : ` · ${forWhom} missed it`)}
           {e.source === "override" && !moved && !e.skipped && e.rule_id == null && " · extra"}
           {e.unscheduled && " · no longer scheduled"}
         </span>

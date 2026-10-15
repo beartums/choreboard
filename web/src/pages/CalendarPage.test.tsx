@@ -212,3 +212,14 @@ describe("what the server says I can do", () => {
     expect(within(panel).getByRole("button", { name: "Decline" })).toBeInTheDocument();
   });
 });
+
+
+describe("covered chores", () => {
+  it("show the person who did it, and whose it was", async () => {
+    s.entries[0].outcome = { id: 5, status: "covered", assignee_id: 2, done_by_id: 3, note: "practice", recorded_by: 1, recorded_at: "" };
+    show();
+    const btn = (await screen.findAllByRole("button", { name: /Walk the dog/ }))[0];
+    expect(btn).toHaveTextContent("Cass");
+    expect(btn).toHaveTextContent("covering for Tucker");
+  });
+});
