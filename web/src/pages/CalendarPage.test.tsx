@@ -103,6 +103,24 @@ describe("calendar", () => {
     expect(await screen.findAllByText("Swapped")).toHaveLength(2);
   });
 
+  it("the last step is a small calendar: only swappable days can be picked; week, month or agenda", async () => {
+    localStorage.clear();
+    show();
+    const panel = await open(6);                      // Eric's Sunday
+    await userEvent.click(within(panel).getByRole("button", { name: "Swap" }));
+    await userEvent.click(within(await within(panel).findByRole("group", { name: "Whose" })).getByRole("button", { name: "Tucker" }));
+    await userEvent.click(within(within(panel).getByRole("group", { name: "Which chore" })).getByRole("button", { name: "🐕 Walk the dog" }));
+    const cal = within(panel).getByRole("radiogroup", { name: "Which day" });
+    const tuckers = s.entries.filter((e) => e.person_id === 2 && e.date >= today());
+    // Month view by default; Tucker's days in this month are the only buttons.
+    expect(within(cal).getAllByRole("radio").length).toBeGreaterThan(0);
+    expect(within(cal).getAllByRole("radio").length).toBeLessThanOrEqual(tuckers.length);
+    await userEvent.click(within(panel).getByRole("button", { name: "Agenda" }));
+    expect(within(within(panel).getByRole("radiogroup", { name: "Which day" })).getAllByRole("radio")).toHaveLength(tuckers.length);
+    await userEvent.click(within(panel).getByRole("button", { name: "Week" }));
+    expect(within(panel).getByRole("button", { name: "Next week" })).toBeInTheDocument();
+  });
+
   it("can find a swap by chore first", async () => {
     show();
     const panel = await open(6);

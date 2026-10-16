@@ -305,7 +305,7 @@ function SwapForm({ entry, chores, people, proposal, onSubmit, onCancel }: {
   return (
     <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); onSubmit(pick, reason.trim()); }}>
       <h3>{proposal ? "Ask to swap" : "Swap"}</h3>
-      {candidates ? <SwapPicker candidates={candidates} value={pick} onChange={setPick} /> : <p className="muted">Loading…</p>}
+      {candidates ? <SwapPicker candidates={candidates} value={pick} onChange={setPick} own={entry.date} /> : <p className="muted">Loading…</p>}
       <button type="button" className="ghost" onClick={() => setWeeks(weeks + 12)}>Look further ahead ({weeks + 12} weeks)</button>
       <label>Why<input value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
       <ErrorNote error={error} />

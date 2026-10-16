@@ -18,6 +18,18 @@ export interface Person {
  *  the tab only: a new tab, or a reload after closing it, is yourself. */
 const ACT_KEY = "choreboard.actAs";
 let actingAs: number | null = (() => {
+  // A link from nav while acting as someone carries ?act_as=<person id>: keep
+  // acting as them here (the server still checks you're an admin), and take
+  // it out of the address bar so a copied link doesn't carry it.
+  try {
+    const url = new URL(window.location.href);
+    const fromLink = url.searchParams.get("act_as");
+    if (fromLink && /^\d+$/.test(fromLink)) {
+      sessionStorage.setItem(ACT_KEY, fromLink);
+      url.searchParams.delete("act_as");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    }
+  } catch { /* fine */ }
   try { const v = sessionStorage.getItem(ACT_KEY); return v ? Number(v) : null; } catch { return null; }
 })();
 export function getActingAs(): number | null { return actingAs; }
