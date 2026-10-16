@@ -50,7 +50,7 @@ describe("calendar", () => {
   it("records 'I did it'", async () => {
     show();
     const panel = await open(6);                      // Eric's Sunday
-    await userEvent.click(within(panel).getByRole("button", { name: "I did it" }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Mark done" }));
     await waitFor(() => expect(s.calls).toContainEqual(expect.objectContaining(
       { method: "POST", path: `/api/occurrences/7:${addDays(MON, 6)}:rule:1/outcome`, body: { status: "done" } })));
   });
@@ -81,25 +81,35 @@ describe("calendar", () => {
       .toEqual({ status: "covered", note: "Mom at work", done_by: 3 }));
   });
 
-  it("swaps with any later day and asks why", async () => {
+  it("swaps by person, then chore, then day, and asks why", async () => {
     show();
     const panel = await open(6);                      // Eric's Sunday
-    await userEvent.click(within(panel).getByRole("button", { name: "Swap with another day" }));
-    const list = await within(panel).findByLabelText("Swap with");
+    await userEvent.click(within(panel).getByRole("button", { name: "Swap" }));
+    const whose = await within(panel).findByRole("group", { name: "Whose" });
     // Only other people's days are offered (not Eric's own next Sunday).
-    const options = within(list).getAllByRole("option").map((o) => o.textContent);
-    expect(options.some((t) => t!.includes("Eric"))).toBe(false);
-    // From today (or the day itself, if earlier) onwards.
+    const names = within(whose).getAllByRole("button").map((b) => b.textContent);
+    expect(names).not.toContain("Eric");
     const from = today() < addDays(MON, 6) ? today() : addDays(MON, 6);
-    expect(options).toHaveLength(s.entries.filter((e) => e.person_id !== 1 && e.date >= from).length);
-    const target = s.entries.filter((e) => e.person_id !== 1 && e.date >= from)[0];
-    await userEvent.selectOptions(list, target.id);
+    const target = s.entries.filter((e) => e.person_id !== 1 && e.date >= from && e.date >= today())[0];
+    const who = PEOPLE.find((p) => p.id === target.person_id)!.name;
+    await userEvent.click(within(whose).getByRole("button", { name: who }));
+    await userEvent.click(within(within(panel).getByRole("group", { name: "Which chore" })).getByRole("button", { name: "🐕 Walk the dog" }));
+    const days = within(panel).getByRole("radiogroup", { name: "Which day" });
+    await userEvent.click(within(days).getAllByRole("radio")[0]);
     await userEvent.type(within(panel).getByLabelText("Why"), "Eric away Sunday");
     await userEvent.click(within(panel).getByRole("button", { name: "Swap" }));
     await waitFor(() => expect(s.calls.find((c) => c.path === "/api/swaps")!.body).toEqual(
       { a: `7:${addDays(MON, 6)}:rule:1`, b: target.id, reason: "Eric away Sunday" }));
-    // Reloaded: the two days now show the swap.
     expect(await screen.findAllByText("Swapped")).toHaveLength(2);
+  });
+
+  it("can find a swap by chore first", async () => {
+    show();
+    const panel = await open(6);
+    await userEvent.click(within(panel).getByRole("button", { name: "Swap" }));
+    await userEvent.click(await within(panel).findByRole("button", { name: "Chore" }));
+    await userEvent.click(within(within(panel).getByRole("group", { name: "Which chore" })).getByRole("button", { name: "🐕 Walk the dog" }));
+    expect(within(within(panel).getByRole("group", { name: "Whose" })).getAllByRole("button").length).toBeGreaterThan(0);
   });
 
   it("a recorded day offers undo, with a reason", async () => {
@@ -108,8 +118,8 @@ describe("calendar", () => {
     const panel = await open(0);
     expect(within(panel).getByText("Done by Tucker")).toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "Missed" })).toBeNull();
-    await userEvent.click(within(panel).getByRole("button", { name: "Undo this" }));
-    expect(within(panel).getByRole("button", { name: "Undo" })).toBeDisabled();
+    await userEvent.click(within(panel).getByRole("button", { name: "Undo" }));
+    expect(within(panel).getByRole("button", { name: "Undo" })).toBeDisabled();       // the form's, until a reason
   });
 
   it("navigates weeks and filters to mine", async () => {
@@ -177,7 +187,7 @@ describe("recorded but unscheduled", () => {
     await userEvent.click(btn);
     const panel = await screen.findByRole("dialog");
     expect(within(panel).getByText(/no longer on the schedule/)).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: "Undo this" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 });
 
@@ -195,10 +205,10 @@ describe("what the server says I can do", () => {
     s.entries[0].cannot = { done: "opens at 4 PM" };
     show();
     const panel = await open(0);
-    expect(within(panel).queryByRole("button", { name: /did it/ })).toBeNull();
-    expect(within(panel).getByText("opens at 4 PM.")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Mark done" })).toBeNull();
+    expect(within(panel).getByText("Done: opens at 4 PM.")).toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: "Missed" })).toBeNull();
-    expect(within(panel).getByRole("button", { name: "Ask to swap…" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Ask to swap" })).toBeInTheDocument();
   });
 
   it("a pending swap shows as tentative with approve/decline for the person asked", async () => {
@@ -218,7 +228,7 @@ describe("what the server says I can do", () => {
     s.entries[0].can = ["propose_swap", "propose_give"];
     render(<MemoryRouter><CalendarPage me={TUCKER} /></MemoryRouter>);
     const panel = await open(0);
-    await userEvent.click(within(panel).getByRole("button", { name: "Ask someone to take it…" }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Ask someone to take it" }));
     await userEvent.selectOptions(within(panel).getByLabelText("Ask"), "Mom");
     await userEvent.type(within(panel).getByLabelText("Why"), "practice");
     await userEvent.click(within(panel).getByRole("button", { name: "Ask them" }));
@@ -231,7 +241,7 @@ describe("what the server says I can do", () => {
     s.entries[6].can = ["approve_swap", "decline_swap", "skip", "give", "swap", "failed"];
     show();
     const panel = await open(6);
-    await userEvent.click(within(panel).getByRole("button", { name: "Skip this date" }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Skip this day" }));
     await userEvent.click(within(panel).getByRole("button", { name: "Skip this date" }));
     expect(await within(panel).findByText(/Doing this settles it first/)).toBeInTheDocument();
     expect(within(panel).getByText(/Tucker asked Eric — practice/)).toBeInTheDocument();
@@ -259,7 +269,7 @@ describe("undoing a swap", () => {
                      can: ["request_undo"], cannot: {} };
     show();
     const panel = await open(6);
-    await userEvent.click(within(panel).getByRole("button", { name: "Ask to undo the swap…" }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Ask to undo the swap" }));
     expect(within(panel).getByLabelText("Why undo the swap?")).toBeInTheDocument();
   });
 
@@ -267,6 +277,6 @@ describe("undoing a swap", () => {
     s.entries[6] = { ...s.entries[6], group_id: "sw_1", can: [], cannot: { undo_swap: "a later swap on Sun Oct 25 has to be undone first" } };
     show();
     const panel = await open(6);
-    expect(within(panel).getByText(/Undo: a later swap on Sun Oct 25 has to be undone first\./)).toBeInTheDocument();
+    expect(within(panel).getByText(/Undo swap: a later swap on Sun Oct 25 has to be undone first\./)).toBeInTheDocument();
   });
 });

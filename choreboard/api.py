@@ -208,7 +208,6 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     def current_senders() -> dict[str, notify.Sender]:
         return fixed_senders if fixed_senders is not None else build_senders(svc.db)
     link = os.environ.get("CHOREBOARD_PUBLIC_URL", "").rstrip("/")
-    link = f"{link}/calendar" if link else ""
 
     # One SQLite connection, one request at a time. A household makes a few
     # requests a minute; serialising them is simpler than a connection pool
@@ -383,6 +382,11 @@ def create_app(settings: Settings | None = None, verifier: PomeriumVerifier | No
     def swap_requests(a: dict = Depends(actor)) -> list[dict[str, Any]]:
         """Pending swap requests I'm part of (either side)."""
         return svc.requests_for(a["id"])
+
+    @app.get("/api/swap-requests/{rid}")
+    def swap_request(rid: int, a: dict = Depends(actor)) -> dict[str, Any]:
+        """One request, for its page: both sides in words and what I may do."""
+        return svc.request_view(a, rid)
 
     @app.post("/api/swap-requests", status_code=201)
     def propose(body: SwapIn, a: dict = Depends(actor)) -> dict[str, Any]:

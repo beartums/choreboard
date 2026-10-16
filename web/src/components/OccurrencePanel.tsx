@@ -1,16 +1,18 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, timeWindow, type Chore, type Entry, type PendingRequest, type Person, type Settle,
   type Status } from "../api";
 import { addDays, dayLabel, today } from "../dates";
 import { ErrorNote } from "./ErrorNote";
+import { SwapPicker, type Candidate } from "./SwapPicker";
 
-type Mode = null | "covered" | "failed" | "failed_covered" | "give" | "propose_give" | "skip" | "swap" | "undo" | "request_undo";
+type Mode = null | "covered" | "failed" | "failed_covered" | "give" | "propose_give" | "skip" | "swap" | "propose_swap"
+  | "undo" | "request_undo";
 
 /** Everything you can do to one occurrence: record what happened, or plan a
  *  change for that date only. The household's rules (DESIGN.md) are enforced
  *  by the API; this asks for what each needs -- a reason, who covered, how
  *  many points to take. */
-export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged }: {
+export function OccurrencePanel({ entry, chores, people, onClose, onChanged }: {
   entry: Entry; me: Person; chores: Chore[]; people: Person[]; onClose: () => void; onChanged: () => void;
 }) {
   const [mode, setMode] = useState<Mode>(null);
@@ -42,13 +44,11 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
   const undoChange = () => run(() => api.removeOverride(entry.group_id ?? entry.override_id!));
 
   const title = `${chore?.icon ? chore.icon + " " : ""}${chore?.title ?? "Chore"}`;
-  const isOverride = entry.override_id != null;
   // What this person may do, from the server. An old server sends no `can`:
   // then offer everything and let the server say no.
   const can = (a: string) => entry.can === undefined || entry.can.includes(a);
   const why = (a: string) => entry.cannot?.[a];
   const ps = entry.pending_swap;
-  const admin = can("failed");
 
   return (
     <div className="backdrop" onClick={onClose}>
@@ -82,44 +82,21 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
           </div>
         )}
 
-        {entry.outcome ? (
-          <>
-            <p><strong>{describeOutcome(entry, name)}</strong>{entry.outcome.note && ` — ${entry.outcome.note}`}</p>
-            {mode === "undo"
-              ? <ReasonForm label="Why undo it?" submit="Undo" onSubmit={(note) => run(() => api.undo(entry.outcome!.id, note))} onCancel={() => setMode(null)} />
-              : can("undo") ? <div className="actions"><button className="ghost" onClick={() => setMode("undo")}>Undo this</button></div>
-              : why("undo") && <p className="muted">Undo: {why("undo")}.</p>}
-          </>
-        ) : entry.skipped ? (
-          <>
-            <p>Skipped for this date.</p>
-            {can("unskip") && <div className="actions"><button className="ghost" onClick={undoChange}>Don't skip it</button></div>}
-          </>
-        ) : mode === null ? (
-          <>
-            <Section title="What happened">
-              {can("done") ? <button onClick={recordDone}>{entry.person_id === me.id ? "I did it" : `${name(entry.person_id)} did it`}</button>
-                : why("done") && <span className="muted">{why("done")}.</span>}
-              {can("covered") && <button className="ghost" onClick={() => setMode("covered")}>Someone else did it</button>}
-              {can("failed") && <button className="ghost" onClick={() => setMode("failed")}>Missed</button>}
-              {can("failed_covered") && <button className="ghost" onClick={() => setMode("failed_covered")}>Missed, someone covered</button>}
-              {can("skipped") && <button className="ghost" onClick={recordNotNeeded}>Didn't need doing</button>}
-            </Section>
-            <Section title={admin ? "Plan a change, this date only" : "Swap"}>
-              {can("give") && entry.rule_id != null && <button className="ghost" onClick={() => setMode("give")}>Give to someone</button>}
-              {can("propose_give") && !ps && <button className="ghost" onClick={() => setMode("propose_give")}>Ask someone to take it…</button>}
-              {(can("swap") || can("propose_swap")) && entry.rule_id != null && !ps &&
-                <button className="ghost" onClick={() => setMode("swap")}>{can("swap") ? "Swap with another day" : "Ask to swap…"}</button>}
-              {!can("swap") && !can("propose_swap") && why("propose_swap") && <span className="muted">{why("propose_swap")}.</span>}
-              {can("skip") && entry.rule_id != null && <button className="ghost" onClick={() => setMode("skip")}>Skip this date</button>}
-              {can("undo_swap") && <button className="ghost" onClick={undoChange}>Undo the swap</button>}
-              {can("request_undo") && <button className="ghost" onClick={() => setMode("request_undo")}>Ask to undo the swap…</button>}
-              {!can("undo_swap") && !can("request_undo") && (why("undo_swap") || why("request_undo")) &&
-                <span className="muted">Undo: {why("undo_swap") || why("request_undo")}.</span>}
-              {can("undo_change") && isOverride && <button className="ghost" onClick={undoChange}>
-                {entry.group_id ? "Undo the swap" : entry.rule_id == null ? "Remove this extra one" : "Undo the change"}</button>}
-            </Section>
-          </>
+        {entry.outcome && (
+          <p><strong>{describeOutcome(entry, name)}</strong>{entry.outcome.note && ` — ${entry.outcome.note}`}</p>
+        )}
+        {entry.skipped && <p>Skipped for this date.</p>}
+
+        {mode === null ? (
+          <ActionBar can={(a) => can(a) && (entry.outcome ? a === "undo" : entry.skipped ? a === "unskip" : a !== "undo" && a !== "unskip")}
+            why={why} pending={!!ps} onPick={(a) => {
+            if (a === "done") recordDone();
+            else if (a === "skipped") recordNotNeeded();
+            else if (a === "unskip" || a === "undo_swap" || a === "undo_change") undoChange();
+            else setMode(a as Mode);
+          }} />
+        ) : mode === "undo" ? (
+          <ReasonForm label="Why undo it?" submit="Undo" onSubmit={(note) => run(() => api.undo(entry.outcome!.id, note))} onCancel={() => setMode(null)} />
         ) : mode === "covered" || mode === "failed" || mode === "failed_covered" ? (
           <OutcomeForm status={mode} points={chore?.points ?? 0} others={others} assignee={name(entry.person_id)}
             onSubmit={(b) => run(() => api.record(entry.id, b))} onCancel={() => setMode(null)} />
@@ -134,7 +111,7 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
         ) : mode === "skip" ? (
           <ReasonForm label="Why skip it?" submit="Skip this date" optional
             onSubmit={(reason) => run((p) => api.skip(entry.id, reason, p))} onCancel={() => setMode(null)} />
-        ) : mode === "swap" ? (
+        ) : mode === "swap" || mode === "propose_swap" ? (
           <SwapForm entry={entry} chores={chores} people={people} proposal={!can("swap")}
             onSubmit={(other, reason) => run((p) => can("swap") ? api.swap(entry.id, other, reason, p) : api.proposeSwap(entry.id, other, reason))}
             onCancel={() => setMode(null)} />
@@ -158,6 +135,64 @@ export function OccurrencePanel({ entry, me, chores, people, onClose, onChanged 
   );
 }
 
+/* The actions, as icons -- the same set, order and ⋯ menu as nav's chore
+ * widget. [action, icon, label]. The server's `can` decides which show. */
+const ICONS: [string, string, string][] = [
+  ["done", "✓", "Mark done"],
+  ["covered", "✓⁺", "Someone else did it"],
+  ["propose_swap", "⇄", "Ask to swap"],
+  ["swap", "⇄", "Swap"],
+  ["give", "⇄⁺", "Give to someone"],
+  ["propose_give", "⇄⁺", "Ask someone to take it"],
+  ["skip", "⏭", "Skip this day"],
+  ["failed", "✗", "Missed"],
+  ["undo", "↶", "Undo"],
+  ["undo_swap", "⇄↶", "Undo the swap"],
+  ["request_undo", "⇄↶", "Ask to undo the swap"],
+  ["unskip", "↺", "Don't skip it"],
+  ["undo_change", "↶", "Undo the change"],
+];
+const MORE: [string, string, string][] = [
+  ["failed_covered", "✗⁺", "Missed, someone covered"],
+  ["skipped", "∅", "Not needed"],
+];
+const WHY: Record<string, string> = { done: "Done", propose_swap: "Swap", undo: "Undo", undo_swap: "Undo swap",
+  request_undo: "Undo swap" };
+
+function ActionBar({ can, why, pending, onPick }: {
+  can: (a: string) => boolean; why: (a: string) => string | undefined; pending: boolean; onPick: (a: string) => void;
+}) {
+  const [menu, setMenu] = useState(false);
+  const shown = ICONS.filter(([a]) => can(a) && !(pending && (a === "propose_swap" || a === "propose_give")));
+  const more = MORE.filter(([a]) => can(a));
+  const whys = Object.keys(WHY).filter((a) => !can(a) && why(a));
+  return (
+    <div className="stack">
+      <div className="icon-bar" role="toolbar" aria-label="Actions">
+        {shown.map(([a, icon, label]) => (
+          <button key={a} className={`icon-btn${a === "done" ? " primary" : ""}`} title={label} aria-label={label}
+            onClick={() => onPick(a)}>{icon}</button>
+        ))}
+        {more.length > 0 && (
+          <span className="more">
+            <button className="icon-btn" title="More" aria-label="More" aria-haspopup="menu" aria-expanded={menu}
+              onClick={() => setMenu(!menu)}>⋯</button>
+            {menu && (
+              <div className="menu" role="menu">
+                {more.map(([a, icon, label]) => (
+                  <button key={a} role="menuitem" onClick={() => { setMenu(false); onPick(a); }}>{icon} {label}</button>
+                ))}
+              </div>
+            )}
+          </span>
+        )}
+        {!shown.length && !more.length && !pending && <span className="muted">Nothing you can do with this one.</span>}
+      </div>
+      {whys.map((a) => <p key={a} className="muted why">{WHY[a]}: {why(a)}.</p>)}
+    </div>
+  );
+}
+
 function describeOutcome(e: Entry, name: (id: number | null) => string): string {
   const o = e.outcome!;
   switch (o.status) {
@@ -167,10 +202,6 @@ function describeOutcome(e: Entry, name: (id: number | null) => string): string 
     case "covered": return `Covered by ${name(o.done_by_id)}`;
     case "failed_covered": return `Missed by ${name(o.assignee_id)}, covered by ${name(o.done_by_id)}`;
   }
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="stack"><h3>{title}</h3><div className="actions">{children}</div></div>;
 }
 
 function ReasonForm({ label, submit, optional, onSubmit, onCancel }:
@@ -248,14 +279,14 @@ function GiveForm({ others, proposal, onSubmit, onCancel }: {
   );
 }
 
-/** Pick the other side of a swap: any scheduled, unrecorded occurrence of
- *  someone else's, on any date -- tomorrow's or months away. */
+/** Pick the other side of a swap -- any scheduled, unrecorded occurrence of
+ *  someone else's, on any date ahead -- with the three-step picker. */
 function SwapForm({ entry, chores, people, proposal, onSubmit, onCancel }: {
   entry: Entry; chores: Chore[]; people: Person[]; proposal?: boolean;
   onSubmit: (other: string, reason: string) => void; onCancel: () => void;
 }) {
-  const [weeks, setWeeks] = useState(8);
-  const [candidates, setCandidates] = useState<Entry[] | null>(null);
+  const [weeks, setWeeks] = useState(12);
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [pick, setPick] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -264,27 +295,22 @@ function SwapForm({ entry, chores, people, proposal, onSubmit, onCancel }: {
   useEffect(() => {
     api.calendar(from, addDays(from, weeks * 7)).then((all) => setCandidates(all.filter((e) =>
       e.id !== entry.id && e.person_id !== entry.person_id && e.rule_id != null && !e.skipped && !e.outcome
-      && !e.pending_swap)), setError);
-  }, [from, weeks, entry.id, entry.person_id]);
-
-  const label = (e: Entry) => {
-    const c = chores.find((x) => x.id === e.chore_id);
-    return `${dayLabel(e.date)} — ${c?.icon ?? ""} ${c?.title ?? "Chore"} — ${people.find((p) => p.id === e.person_id)?.name}`;
-  };
+      && !e.pending_swap && e.date >= today()).map((e) => {
+      const c = chores.find((x) => x.id === e.chore_id);
+      return { key: e.id, date: e.date, person: people.find((p) => p.id === e.person_id)?.name ?? "?",
+               chore: `${c?.icon ? c.icon + " " : ""}${c?.title ?? "Chore"}`, window: timeWindow(e.available, e.due) };
+    })), setError);
+  }, [from, weeks, entry.id, entry.person_id, chores, people]);
 
   return (
     <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); onSubmit(pick, reason.trim()); }}>
-      <label>Swap with
-        <select value={pick} onChange={(e) => setPick(e.target.value)} required size={Math.min(8, Math.max(2, candidates?.length ?? 2))}>
-          {candidates?.map((c) => <option key={c.id} value={c.id}>{label(c)}</option>)}
-        </select>
-      </label>
-      {candidates && candidates.length === 0 && <p className="muted">Nothing of anyone else's in the next {weeks} weeks.</p>}
-      <button type="button" className="ghost" onClick={() => setWeeks(weeks + 8)}>Look further ahead ({weeks + 8} weeks)</button>
+      <h3>{proposal ? "Ask to swap" : "Swap"}</h3>
+      {candidates ? <SwapPicker candidates={candidates} value={pick} onChange={setPick} /> : <p className="muted">Loading…</p>}
+      <button type="button" className="ghost" onClick={() => setWeeks(weeks + 12)}>Look further ahead ({weeks + 12} weeks)</button>
       <label>Why<input value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
       <ErrorNote error={error} />
+      {proposal && <p className="muted">They'll be asked to approve it; nothing changes until they do.</p>}
       <div className="actions">
-        {proposal && <p className="muted">They'll be asked to approve it; nothing changes until they do.</p>}
         <button type="submit" disabled={!pick || !reason.trim()}>{proposal ? "Ask them" : "Swap"}</button>
         <button type="button" className="ghost" onClick={onCancel}>Back</button>
       </div>

@@ -38,7 +38,8 @@ export function InboxPage() {
 
   async function open(n: InboxItem) {
     if (!n.read_at) await mark([n.id], true);
-    if (n.date) navigate(`/calendar?date=${n.date}`);
+    if (n.path) navigate(n.path);
+    else if (n.date) navigate(`/calendar?date=${n.date}`);
   }
 
   return (

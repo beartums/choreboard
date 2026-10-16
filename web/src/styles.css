@@ -174,3 +174,21 @@ a.button.ghost { background: transparent; color: var(--accent); }
 .act-as-menu .chip { font-size: .8rem; padding: .1rem .55rem; border-radius: 999px; border: 1px solid var(--line);
   background: none; color: var(--fg); cursor: pointer; }
 .act-as-menu .chip:hover, .act-as-menu .chip:focus-visible { border-color: var(--accent); }
+
+.icon-bar { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; position: relative; }
+.icon-btn { min-width: 2.4rem; padding: .35rem .5rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--line);
+  background: none; color: var(--fg); cursor: pointer; }
+.icon-btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.icon-bar .more { position: relative; }
+.icon-bar .menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 5; display: flex; flex-direction: column;
+  min-width: 14rem; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .25rem;
+  box-shadow: 0 4px 16px rgb(0 0 0 / .12); }
+.icon-bar .menu button { text-align: left; background: none; border: 0; padding: .4rem .5rem; border-radius: 6px;
+  color: var(--fg); cursor: pointer; }
+.icon-bar .menu button:hover { background: var(--line); }
+.why { margin: 0; font-size: .85rem; }
+.pick-step { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.pick-step > .muted { min-width: 6.5rem; font-size: .85rem; }
+.chip { font-size: .85rem; padding: .15rem .6rem; border-radius: 999px; border: 1px solid var(--line); background: none;
+  color: var(--fg); cursor: pointer; }
+.chip.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }

@@ -224,7 +224,8 @@ def claim_due(db: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
     """Queued deliveries whose time has come, marked 'sending' so a second
     worker pass doesn't take them too."""
     rows = [dict(r) for r in db.execute(
-        "SELECT d.*, e.title, e.body FROM deliveries d JOIN events e ON e.id = d.event_id"
+        "SELECT d.*, e.title, e.body, json_extract(e.payload, '$.path') AS path"
+        " FROM deliveries d JOIN events e ON e.id = d.event_id"
         " WHERE d.status = 'queued' AND d.next_at <= ? ORDER BY d.id LIMIT ?", (_now(), limit))]
     db.executemany("UPDATE deliveries SET status = 'sending' WHERE id = ?", [(r["id"],) for r in rows])
     return rows
@@ -246,13 +247,15 @@ def finish(db: sqlite3.Connection, d: dict[str, Any], error: str | None, retry: 
 
 def send_one(d: dict[str, Any], senders: dict[str, Sender], link: str = "") -> tuple[str | None, bool]:
     """Try one delivery: (error or None, whether a failure is worth retrying).
-    No I/O on the database, so the caller can run it outside the lock."""
+    No I/O on the database, so the caller can run it outside the lock. `link`
+    is the app's public URL: the message ends with a link to the event's own
+    page (a swap request's approve page), else the calendar."""
     sender = senders.get(d["channel"])
     if sender is None:
         return f"{d['channel']} isn't set up on this server", False
     if not d["address"]:
         return f"no {d['channel']} address for this person", False
-    body = d["body"] + (f"\n\n{link}" if link else "")
+    body = d["body"] + (f"\n\n{link}{d.get('path') or '/calendar'}" if link else "")
     try:
         sender.send(d["address"], d["title"], body)
         return None, True

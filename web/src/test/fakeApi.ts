@@ -17,6 +17,7 @@ export interface FakeState {
   settings: { can_store_secrets: boolean; key_env: string; fields: any[]; configured: string[] };
   tokens: any[];
   calls: { method: string; path: string; body?: unknown; actAs?: string }[];
+  requests?: any[];
 }
 
 export function fakeApi(init: Partial<FakeState> = {}): FakeState {
@@ -129,6 +130,17 @@ export function fakeApi(init: Partial<FakeState> = {}): FakeState {
       if (occ[2] === "reassign") Object.assign(e, { scheduled_person_id: e.person_id, person_id: body.person_id, override_id: next++, source: "override", reason: body.reason });
       if (occ[2] === "skip") Object.assign(e, { skipped: true, override_id: next++, source: "override", reason: body.reason });
       return json(200, e);
+    }
+    const rq = p.match(/^\/api\/swap-requests\/(\d+)$/);
+    if (rq && method === "GET") {
+      const r = s.requests?.find((x) => x.id === Number(rq[1]));
+      return r ? json(200, r) : json(404, { error: "no such request" });
+    }
+    const ans = p.match(/^\/api\/swap-requests\/(\d+)\/(approve|decline|cancel)$/);
+    if (ans && method === "POST") {
+      const r = s.requests?.find((x) => x.id === Number(ans[1]));
+      if (r) Object.assign(r, { status: { approve: "approved", decline: "declined", cancel: "cancelled" }[ans[2]], can: [] });
+      return json(200, r ?? {});
     }
     if (p === "/api/swap-requests/give" && method === "POST") {
       const e = s.entries.find((x) => x.id === body.key)!;

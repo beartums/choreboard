@@ -136,6 +136,15 @@ export interface InboxItem {
   body: string;
   chore_id: number | null;
   date: string | null;
+  /** The event's own page, e.g. a request's approve page. */
+  path?: string | null;
+}
+
+export interface RequestSide { key: string; date: string; person: string; what: string }
+export interface SwapRequestView {
+  id: number; kind: "swap" | "undo" | "give"; status: string; reason: string; answer: string;
+  from_person: number; to_person: number; from_name: string; to_name: string;
+  mine: RequestSide; theirs: RequestSide | null; can: ("approve" | "decline" | "cancel")[];
 }
 
 export interface Delivery {
@@ -255,6 +264,7 @@ export const api = {
   proposeSwap: (a: string, b: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests", { a, b, reason }),
   answerSwap: (id: number, approve: boolean, reason = "") =>
     call<{ status: string }>("POST", `/api/swap-requests/${id}/${approve ? "approve" : "decline"}`, { reason }),
+  swapRequest: (id: number) => call<SwapRequestView>("GET", `/api/swap-requests/${id}`),
   requestGive: (key: string, person_id: number, reason: string) =>
     call<{ id: number }>("POST", "/api/swap-requests/give", { key, person_id, reason }),
   requestUndo: (key: string, reason: string) => call<{ id: number }>("POST", "/api/swap-requests/undo", { key, reason }),

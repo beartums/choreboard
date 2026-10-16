@@ -268,3 +268,27 @@ def test_a_declined_hand_off_changes_nothing(h):
     h.svc.answer_swap(h.mom, rid, False)
     assert h.svc.occurrence(k).person_id == h.tucker["id"]
     assert h.svc.request(rid)["status"] == "declined"
+
+
+def test_a_request_links_to_its_own_page_and_the_page_says_what_you_can_do(h):
+    from choreboard import notify
+    a, b = key(h, WED), key(h, SUN)
+    h.svc.db.execute("INSERT INTO subscriptions (person_id, event, channel) VALUES (?, 'swap_requested', 'email')",
+                     (h.eric["id"],))
+    rid = h.svc.propose_swap(h.tucker, a, b, "practice")["id"]
+    d = notify.claim_due(h.svc.db)[0]
+    assert d["path"] == f"/requests/{rid}"
+    sent = {}
+
+    class S:
+        def send(self, address, title, body):
+            sent["body"] = body
+    notify.send_one(d, {"email": S()}, "https://cb.example")
+    assert sent["body"].endswith(f"https://cb.example/requests/{rid}")
+    assert h.svc.inbox(h.eric["id"])[0]["path"] == f"/requests/{rid}"
+    v = h.svc.request_view(h.eric, rid)
+    assert v["can"] == ["approve", "decline", "cancel"]           # an admin, and the one asked
+    assert v["mine"]["person"] == "Tucker" and v["theirs"]["person"] == "Eric"
+    assert h.svc.request_view(h.tucker, rid)["can"] == ["cancel"]
+    with pytest.raises(Forbidden):
+        h.svc.request_view(h.mom, rid)

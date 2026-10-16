@@ -172,13 +172,14 @@ class Service:
         return f"{title} on {when}{window}"
 
     def _emit(self, kind: str, actor: dict[str, Any] | None, subjects: list[int] | None, title: str, body: str,
-              chore_id: int | None = None, date: dt.date | None = None) -> None:
+              chore_id: int | None = None, date: dt.date | None = None, path: str | None = None) -> None:
         """Tell whoever wants to know. Never fails the action that caused it:
         the change has happened, and a broken notification must not undo it."""
         try:
             with self._tx():
                 notify.emit(self.db, kind, actor_id=(actor or {}).get("id"), subjects=subjects, title=title,
-                            body=body, chore_id=chore_id, date=date, via_id=(actor or {}).get("via_id"))
+                            body=body, chore_id=chore_id, date=date, via_id=(actor or {}).get("via_id"),
+                            **({"path": path} if path else {}))
         except Exception:  # noqa: BLE001
             log.exception("couldn't record a %s notification", kind)
 
@@ -637,6 +638,31 @@ class Service:
         out["a"], out["b"] = key_str(a), key_str(b)
         return out
 
+    def request_view(self, actor: dict[str, Any] | None, rid: int) -> dict[str, Any]:
+        """One request for its page (the link in the notification): both
+        sides in words, and what this person may do with it now."""
+        r = self.request(rid)
+        me, admin = (actor or {}).get("id"), policy.is_admin(actor)
+        if not admin and me not in (r["from_person"], r["to_person"]):
+            raise Forbidden("that request isn't yours")
+        a, b = self._req_keys(r)
+
+        def side(k: OccurrenceKey) -> dict[str, Any]:
+            try:
+                o = self.occurrence(k, include_skipped=True)
+                return {"key": key_str(k), "date": k[1].isoformat(), "person": self._name(o.person_id),
+                        "what": self._what(o.chore_id, o.date, o.available, o.due)}
+            except Error:
+                return {"key": key_str(k), "date": k[1].isoformat(), "person": "?", "what": key_str(k)}
+        out = {**r, "from_name": self._name(r["from_person"]), "to_name": self._name(r["to_person"]),
+               "kind": r.get("kind") or "swap", "mine": side(a), "theirs": None if a == b else side(b), "can": []}
+        if r["status"] == "pending":
+            if me == r["to_person"] or admin:
+                out["can"] += ["approve", "decline"]
+            if me == r["from_person"] or admin:
+                out["can"].append("cancel")
+        return out
+
     def requests_for(self, person_id: int) -> list[dict[str, Any]]:
         """Pending requests a person is part of, either side."""
         return [self.request(r["id"]) for r in self.pending_requests()
@@ -667,7 +693,8 @@ class Service:
         wb = self._what(occ_b.chore_id, occ_b.date, occ_b.available, occ_b.due)
         self._emit("swap_requested", actor, [occ_b.person_id], f"{self._name(occ_a.person_id)} wants to swap with you",
                    f"{self._actor_name(actor)} asks: you do their {wa}, they do your {wb}. "
-                   f"Reason: {reason.strip()}. Approve or decline it on the calendar.", occ_b.chore_id, occ_b.date)
+                   f"Reason: {reason.strip()}. Approve or decline it:", occ_b.chore_id, occ_b.date,
+                   path=f"/requests/{rid}")
         return self.request(rid)
 
     def propose_give(self, actor: dict[str, Any] | None, key: OccurrenceKey, person_id: int,
@@ -697,7 +724,7 @@ class Service:
         what = self._what(occ.chore_id, occ.date, occ.available, occ.due)
         self._emit("swap_requested", actor, [person_id], f"{self._name(occ.person_id)} asks you to take a chore",
                    f"{self._actor_name(actor)} asks you to take their {what}. Reason: {reason.strip()}. "
-                   f"Accept or decline it on the calendar.", occ.chore_id, occ.date)
+                   f"Accept or decline it:", occ.chore_id, occ.date, path=f"/requests/{rid}")
         return self.request(rid)
 
     def _swap_sides(self, group: str) -> tuple[list[sqlite3.Row], list[OccurrenceKey]]:
@@ -737,7 +764,7 @@ class Service:
         what = self._what(occ.chore_id, occ.date, occ.available, occ.due)
         self._emit("swap_requested", actor, [to_person], f"{self._name(occ.person_id)} wants to undo a swap",
                    f"{self._actor_name(actor)} asks to undo your swap ({what}). Reason: {reason.strip()}. "
-                   f"Approve or decline it on the calendar.", occ.chore_id, occ.date)
+                   f"Approve or decline it:", occ.chore_id, occ.date, path=f"/requests/{rid}")
         return self.request(rid)
 
     def answer_swap(self, actor: dict[str, Any] | None, rid: int, approve: bool, note: str = "") -> dict[str, Any]:
@@ -1082,7 +1109,8 @@ class Service:
         """A person's notifications, newest first."""
         self._person(person_id)
         return [dict(r) for r in self._all(
-            "SELECT n.id, n.read_at, n.created_at, e.kind, e.title, e.body, e.chore_id, e.date, e.actor_id"
+            "SELECT n.id, n.read_at, n.created_at, e.kind, e.title, e.body, e.chore_id, e.date, e.actor_id,"
+            " json_extract(e.payload, '$.path') AS path"
             " FROM notifications n JOIN events e ON e.id = n.event_id WHERE n.person_id = ?"
             + (" AND n.read_at IS NULL" if unread_only else "") + " ORDER BY n.id DESC LIMIT ?", person_id, limit)]
 

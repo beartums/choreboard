@@ -8,6 +8,7 @@ import { ChoresPage } from "./pages/ChoresPage";
 import { useUnread } from "./components/useUnread";
 import { MeContext } from "./me";
 import { InboxPage } from "./pages/InboxPage";
+import { RequestPage } from "./pages/RequestPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -69,6 +70,7 @@ function Shell({ me, actAs }: { me: Me; actAs: (id: number | null) => void }) {
           <Route path="/chores/:id" element={<ChoreDetail />} />
           <Route path="/people" element={<PeoplePage />} />
           <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/requests/:id" element={<RequestPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/tokens" element={me.person ? <TokensPage me={me.person} /> : null} />
           <Route path="/notifications" element={<NotificationsPage />} />
