@@ -100,7 +100,10 @@ describe("calendar", () => {
     await userEvent.click(within(panel).getByRole("button", { name: "Swap" }));
     await waitFor(() => expect(s.calls.find((c) => c.path === "/api/swaps")!.body).toEqual(
       { a: `7:${addDays(MON, 6)}:rule:1`, b: target.id, reason: "Eric away Sunday" }));
-    expect(await screen.findAllByText("Swapped")).toHaveLength(2);
+    // Reloaded: a "Swapped" badge on each swapped day that's in this week. The
+    // partner can be next week's (late in the week it's the only choice ahead).
+    const onScreen = [addDays(MON, 6), target.date].filter((d) => d <= addDays(MON, 6)).length;
+    expect(await screen.findAllByText("Swapped")).toHaveLength(onScreen);
   });
 
   it("the last step is a small calendar: only swappable days can be picked; week, month or agenda", async () => {
