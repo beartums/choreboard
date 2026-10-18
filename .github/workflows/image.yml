@@ -27,7 +27,7 @@ jobs:
       # The image would build with broken code and die on start; test first.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.15"
       - run: pip install -r requirements.txt -e '.[test]' && pytest -q
 
       # amd64 AND arm64: the cluster has Raspberry Pi workers, and a pod that
