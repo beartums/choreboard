@@ -11,6 +11,12 @@
     { matchManagers: ["npm"], matchUpdateTypes: ["minor", "patch"], groupName: "web dependencies" },
     { matchManagers: ["github-actions"], groupName: "github actions" },
     {
+      // CI's python-version follows the image's Python (Dockerfile FROM python:X-slim): moving it on
+      // its own would test a different Python from the one that runs. The
+      // Dockerfile PR is the Python upgrade; bump CI in that same PR.
+      matchManagers: ["github-actions"], matchDepNames: ["python"], enabled: false,
+    },
+    {
       // Base images' runtimes: a new Python or Node major waits a month for
       // its first patch release and arm64 wheels/binaries.
       matchManagers: ["dockerfile"], matchPackageNames: ["python", "node"], matchUpdateTypes: ["major", "minor"],
