@@ -15,7 +15,9 @@ MON, WED, SUN = D(2026, 10, 19), D(2026, 10, 21), D(2026, 10, 25)
 
 @pytest.fixture
 def h():
-    svc = Service(schema.connect(":memory:"))
+    # A fixed "now" before every test date: on the real clock, requests for
+    # these days expire once the days pass (they did, on 2026-10-22).
+    svc = Service(schema.connect(":memory:"), clock=lambda: dt.datetime(2026, 10, 18, 12))
     eric = svc.bootstrap("Eric", "eric@example.com")
     tucker = svc.create_person(eric, "Tucker", email="t@example.com")
     mom = svc.create_person(eric, "Mom", email="m@example.com")

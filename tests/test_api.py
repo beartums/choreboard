@@ -32,6 +32,8 @@ def client():
     app = create_app(Settings(db_path=":memory:", audience=AUD),
                      verifier=PomeriumVerifier("", AUD, keys=lambda _t: KEY.public_key()),
                      conn=schema.connect(":memory:"))
+    # A fixed "now" before every test date, or requests for them expire.
+    app.state.svc.clock = lambda: dt.datetime(2026, 10, 18, 12)
     return TestClient(app)
 
 
