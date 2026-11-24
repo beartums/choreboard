@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError, getActingAs, setActingAs, type Me, type Person } from "./api";
 import { ErrorNote } from "./components/ErrorNote";
+import { Logo } from "./components/Logo";
 import { CalendarPage } from "./pages/CalendarPage";
 import { ChoreDetail } from "./pages/ChoreDetail";
 import { ChoresPage } from "./pages/ChoresPage";
@@ -45,7 +46,7 @@ function Shell({ me, actAs }: { me: Me; actAs: (id: number | null) => void }) {
     <MeContext.Provider value={me.person}>
     <div className="shell">
       <header className="top">
-        <span className="brand">Choreboard</span>
+        <span className="brand"><Logo /><span className="word">Choreboard</span></span>
         <nav aria-label="Main">
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/chores">Chores</NavLink>
